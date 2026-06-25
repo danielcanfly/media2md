@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -33,6 +34,7 @@ def test_instagram_creator_url_is_normalized_before_legacy_manager(tmp_path, mon
     monkeypatch.setattr(cli, "ROOT", tmp_path)
     monkeypatch.setattr(cli, "refresh_auth", lambda provider: None)
     monkeypatch.setattr(cli, "registry", lambda args: 0)
+    monkeypatch.setitem(sys.modules, "yaml", SimpleNamespace())
 
     captured: list[list[str]] = []
 

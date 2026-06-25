@@ -107,7 +107,7 @@ def test_tiktok_transport_uses_shared_page_deadline(monkeypatch):
         context="range=201-225 candidate=handle",
     )
     assert payload == {"entries": []}
-    assert strategy == "direct-plain"
+    assert strategy == "configured:chrome"
     assert authenticated is False
     assert all(5 <= value <= 40 for value in seen_timeouts)
 
