@@ -1,0 +1,97 @@
+{
+  "schema_version": 13,
+  "ui_locale": "en",
+  "markdown_locale": "en",
+  "timezone": "UTC",
+  "defaults": {
+    "sync": {
+      "enabled": false,
+      "every_minutes": 1440,
+      "full_every_minutes": 10080,
+      "quick_window": 100
+    },
+    "processing": {
+      "scheduled": false,
+      "every_minutes": 4320,
+      "mode": "batch",
+      "batch_size": 100,
+      "max_batches": 0,
+      "max_runtime_minutes": 360,
+      "max_failures": 10,
+      "stop_on_failure": false,
+      "sleep_between_batches": 5,
+      "batch_sizes": {
+        "instagram_reel": 30,
+        "tiktok_video": 100,
+        "youtube_short": 30,
+        "youtube_video": 5,
+        "youtube_long": 1,
+        "youtube_stream": 1
+      }
+    },
+    "filters": {
+      "since": null,
+      "until": null,
+      "rank_from": null,
+      "rank_to": null,
+      "order": "newest_first"
+    }
+  },
+  "providers": {
+    "instagram": {
+      "backend": "auto"
+    },
+    "youtube": {
+      "js_runtime": "auto",
+      "caption_first": true,
+      "caption_languages": [
+        "zh-Hant",
+        "zh-Hans",
+        "zh",
+        "en.*"
+      ],
+      "audio_download_strategies": [
+        "anonymous_default",
+        "anonymous_default_ejs",
+        "anonymous_web_safari_hls",
+        "anonymous_android_vr",
+        "authenticated_default",
+        "authenticated_web_safari_hls"
+      ],
+      "audio_format": "mp3",
+      "long_video_threshold_seconds": 2700,
+      "chunk_seconds": 1800,
+      "chunk_model": "mlx-community/whisper-large-v3-turbo",
+      "preserve_failed_checkpoints": true,
+      "require_auth_preflight": true,
+      "browser_launch_policy": "never",
+      "catalog_surfaces": [
+        "videos",
+        "shorts"
+      ]
+    },
+    "tiktok": {
+      "impersonate": "auto"
+    }
+  },
+  "updates": {
+    "enabled": true,
+    "repository": "danielcanfly/media2md",
+    "check_on_use": true,
+    "check_every_minutes": 43200,
+    "auto_download": false,
+    "auto_install": false
+  },
+  "agent": {
+    "may_enable_sync": true,
+    "may_use_drain": true,
+    "max_batch_size": 500,
+    "max_runtime_minutes": 360,
+    "max_failures": 10,
+    "require_confirmation_for_drain": true,
+    "require_confirmation_for_updates": true,
+    "require_confirmation_for_delete": true,
+    "require_confirmation_for_stale_catalog": true,
+    "require_confirmation_for_browser_launch": true
+  }
+}

@@ -1,0 +1,21 @@
+.venv/
+__pycache__/
+*.py[cod]
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+config/
+data/
+logs/
+workspace/
+markdown/
+downloads/
+transcripts/
+.media2md-quarantine/
+.DS_Store
+
+# Runtime state must never be packaged
+src/media2md/bundle/data/

@@ -1,0 +1,20 @@
+name: tests
+on: [push, pull_request]
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-14]
+        python: ['3.11', '3.12']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '${{ matrix.python }}'}
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install '.[dev]'
+      - run: pytest
+      - run: python -m build
+      - run: python tools/build_release_assets.py
+      - run: ruby -c dist/media2md.rb
+      - run: cd npm && npm pack --dry-run

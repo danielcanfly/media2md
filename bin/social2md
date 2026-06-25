@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+if [ -x "$ROOT/.venv/bin/python" ]; then PY="$ROOT/.venv/bin/python"; else PY="${PYTHON:-python3}"; fi
+export MEDIA2MD_PROJECT_ROOT="$ROOT"
+exec "$PY" -B "$ROOT/scripts/media2md.py" "$@"
