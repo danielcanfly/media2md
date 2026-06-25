@@ -4,7 +4,14 @@ Media2MD downloads permitted Instagram, YouTube, and TikTok media, transcribes s
 
 ## Install
 
-PyPI publication is intentionally pending. Install the local release wheel or source package for now.
+TestPyPI publication is live for validation. The production PyPI release is the next step after the final release decision.
+
+Install from TestPyPI:
+```bash
+python -m pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple media2md==0.9.1
+```
+
+Or install from a local release wheel or source package:
 
 Base CLI from the local wheel:
 ```bash
@@ -189,4 +196,3 @@ A `tiktokuser:<secUid>` playlist can return valid entries without returning a hu
 - `creator run` uses any existing TikTok catalog directly, whether partial or exact. Explicit `creator sync` remains the catalog mutation command.
 - After an exact cursor scan completes and removes its checkpoint, the next `--force-full` bootstraps a new cursor rebuild from Registry identity instead of falling back to deep playlist offsets.
 - The installer safely repairs the v0.8.2 downgrade only when the current total still equals the last exact total.
-
