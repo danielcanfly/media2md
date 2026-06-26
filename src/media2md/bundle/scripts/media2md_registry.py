@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from media2md_paths import require_command
 from media2md_runtime import operation_lock, safe_artifact_stem
 from media2md_types import (
     DEFAULT_BATCH_SIZES, infer_media_type, media_type_for_youtube_surface,
@@ -453,13 +454,7 @@ def auth_args(provider: str) -> list[str]:
 
 
 def command(name: str) -> str:
-    found = shutil.which(name)
-    if found:
-        return found
-    local = ROOT / ".venv" / "bin" / name
-    if local.is_file():
-        return str(local)
-    raise RuntimeError(f"Required command not found: {name}")
+    return require_command(name)
 
 
 def _transient_error_text(text: str) -> bool:

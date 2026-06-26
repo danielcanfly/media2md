@@ -251,6 +251,7 @@ def run_logged(
     cwd: Path | None = None,
     timeout: int = 300,
     label: str = "command",
+    start_new_session: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     process = subprocess.Popen(
         command,
@@ -258,7 +259,7 @@ def run_logged(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        start_new_session=True,
+        start_new_session=start_new_session,
     )
     timed_out = False
     try:

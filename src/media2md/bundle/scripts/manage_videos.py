@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from media2md_paths import command_path
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -133,13 +134,9 @@ def parse_shortcode(url: str) -> str:
 
 
 def gallery_dl_path() -> str:
-    candidates = (
-        ROOT / ".venv" / "bin" / "gallery-dl",
-        Path(shutil.which("gallery-dl") or ""),
-    )
-    for candidate in candidates:
-        if candidate and candidate.is_file():
-            return str(candidate)
+    candidate = command_path("gallery-dl")
+    if candidate:
+        return candidate
     raise RuntimeError("gallery-dl executable was not found.")
 
 

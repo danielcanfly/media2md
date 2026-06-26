@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from media2md_paths import command_path
 
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "data" / "state.db"
@@ -376,9 +377,7 @@ def run_gallery_dl(
     cookies_browser: str | None,
     force_ipv4: bool,
 ) -> list[dict[str, Any]]:
-    executable = shutil.which(
-        "gallery-dl"
-    )
+    executable = command_path("gallery-dl")
 
     if not executable:
         raise RuntimeError(

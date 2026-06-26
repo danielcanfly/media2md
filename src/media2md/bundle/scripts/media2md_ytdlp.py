@@ -4,10 +4,11 @@ from __future__ import annotations
 import importlib.metadata
 import json
 import re
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
+
+from media2md_paths import command_path
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "config" / "social2md.json"
@@ -34,10 +35,7 @@ def _version_tuple(text: str) -> tuple[int, ...]:
 
 
 def _binary_version(name: str) -> dict[str, Any]:
-    path = shutil.which(name)
-    if not path:
-        local = ROOT / ".venv" / "bin" / name
-        path = str(local) if local.is_file() else None
+    path = command_path(name)
     if not path:
         return {"name": name, "available": False, "path": None, "version": None}
     output = ""
@@ -145,7 +143,7 @@ def impersonation_args(provider: str, config: dict[str, Any] | None = None) -> l
 def po_token_providers() -> dict[str, Any]:
     wpc = package_version("yt-dlp-getpot-wpc", "yt_dlp_getpot_wpc")
     bgutil = package_version("bgutil-ytdlp-pot-provider", "bgutil_ytdlp_pot_provider")
-    chrome = shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser")
+    chrome = command_path("google-chrome") or command_path("chromium") or command_path("chromium-browser")
     mac_chrome = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
     if not chrome and mac_chrome.is_file():
         chrome = str(mac_chrome)

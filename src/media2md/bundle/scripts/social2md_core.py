@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any, Iterator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
+from media2md_paths import command_path
+
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "config" / "social2md.json"
 POLICY_PATH = ROOT / "config" / "creator_policies.json"
@@ -893,21 +895,21 @@ def provider_status() -> list[dict[str, Any]]:
     return [
         {
             "provider": "instagram",
-            "installed": bool(shutil.which("gallery-dl")),
+            "installed": bool(command_path("gallery-dl")),
             "creator_sync": True,
             "single_media": True,
             "required_extra": "instagram",
         },
         {
             "provider": "youtube",
-            "installed": bool(shutil.which("yt-dlp")),
+            "installed": bool(command_path("yt-dlp")),
             "creator_sync": True,
             "single_media": True,
             "required_extra": "youtube",
         },
         {
             "provider": "tiktok",
-            "installed": bool(shutil.which("yt-dlp")),
+            "installed": bool(command_path("yt-dlp")),
             "creator_sync": True,
             "single_media": True,
             "required_extra": "tiktok",

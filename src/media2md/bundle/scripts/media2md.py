@@ -347,8 +347,12 @@ def creator_run(args: argparse.Namespace) -> int:
     policy=effective_policy(provider,creator)
     mode=args.mode or policy["processing"]["mode"]
     batch_size=args.batch_size or policy["processing"]["batch_size"]
+    typed_assignments = parse_batch_size_assignments(getattr(args, "batch_size_type", None))
     batch_sizes = normalize_batch_sizes(policy["processing"].get("batch_sizes"))
-    batch_sizes.update(parse_batch_size_assignments(getattr(args, "batch_size_type", None)))
+    if args.batch_size is not None and not typed_assignments:
+        batch_sizes = {}
+    else:
+        batch_sizes.update(typed_assignments)
     if provider=="instagram":
         instagram_batch = batch_sizes.get("instagram_reel", batch_size)
         cmd=["creator","run",args.creator,"--mode",mode,"--batch-size",str(instagram_batch),"--output",args.output]

@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from media2md_paths import command_path
 from media2md_runtime import run_logged, safe_artifact_stem
 
 from media2md_auth_shared import refresh_if_configured
@@ -257,7 +258,13 @@ def paths_for(username: str, shortcode: str) -> tuple[Path, Path, Path, Path]:
 
 
 def run_command(command: list[str], timeout: int) -> None:
-    run_logged(command, cwd=ROOT, timeout=timeout, label=Path(command[0]).name)
+    run_logged(
+        command,
+        cwd=ROOT,
+        timeout=timeout,
+        label=Path(command[0]).name,
+        start_new_session=False,
+    )
 
 def instagram_backend() -> str:
     try:
@@ -281,7 +288,7 @@ def _gallery_download(
         refresh_if_configured("instagram")
     except Exception:
         pass
-    executable = shutil.which("gallery-dl")
+    executable = command_path("gallery-dl")
     if not executable:
         raise RuntimeError("gallery-dl command was not found")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -377,7 +384,7 @@ def transcribe_media(
     language: str,
     model: str,
 ) -> list[tuple[Path, str]]:
-    executable = shutil.which("mlx_whisper")
+    executable = command_path("mlx_whisper")
     if not executable:
         raise RuntimeError("mlx_whisper command was not found")
     output_dir.mkdir(parents=True, exist_ok=True)

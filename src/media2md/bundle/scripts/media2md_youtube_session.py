@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from media2md_paths import command_path
+
 ROOT = Path(__file__).resolve().parents[1]
 AUTH_PROFILES = ROOT / "config" / "auth_profiles.json"
 REGISTRY_DB = ROOT / "data" / "media2md.db"
@@ -152,7 +154,7 @@ def default_probe_video_id() -> str:
 
 
 def _command(name: str) -> str | None:
-    return shutil.which(name) or (str(ROOT / ".venv" / "bin" / name) if (ROOT / ".venv" / "bin" / name).is_file() else None)
+    return command_path(name)
 
 
 def _run(cmd: list[str], timeout: int = 180) -> subprocess.CompletedProcess[str]:

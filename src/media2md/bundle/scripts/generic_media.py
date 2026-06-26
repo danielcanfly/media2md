@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from media2md_paths import require_command
 from media2md_urls import detect_provider as detect_provider_from_value, normalize_media
 from media2md_ytdlp import (classify_access_error, impersonation_args, youtube_access_args, youtube_runtime_args,
     youtube_audio_settings, youtube_download_strategies)
@@ -203,20 +204,26 @@ def detect_provider(value: str, explicit: str | None = None) -> str:
 
 
 def command(name: str) -> str:
-    value = shutil.which(name)
-    if not value:
+    try:
+        return require_command(name)
+    except RuntimeError as exc:
         if name == "yt-dlp":
             hint = "pip install 'media2md[youtube]' or pip install 'media2md[tiktok]'"
         elif name == "gallery-dl":
             hint = "pip install 'media2md[instagram]'"
         else:
             hint = "pip install 'media2md[mlx]'"
-        raise RuntimeError(f"Required command not found: {name}. Install it with: {hint}")
-    return value
+        raise RuntimeError(f"{exc}. Install it with: {hint}") from exc
 
 
 def run(cmd: list[str], timeout: int = 7200) -> subprocess.CompletedProcess[str]:
-    return run_logged(cmd, cwd=ROOT, timeout=timeout, label=Path(cmd[0]).name)
+    return run_logged(
+        cmd,
+        cwd=ROOT,
+        timeout=timeout,
+        label=Path(cmd[0]).name,
+        start_new_session=False,
+    )
 
 def load_config() -> dict[str, Any]:
     try:

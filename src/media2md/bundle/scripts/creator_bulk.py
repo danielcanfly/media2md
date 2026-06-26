@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from media2md_paths import command_path
 
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = ROOT / "data" / "state.db"
@@ -89,11 +90,7 @@ def normalize_creator(value: str) -> str:
 
 
 def gallery_dl_path() -> str:
-    local = ROOT / ".venv" / "bin" / "gallery-dl"
-    if local.is_file():
-        return str(local)
-
-    executable = shutil.which("gallery-dl")
+    executable = command_path("gallery-dl")
     if executable:
         return executable
 

@@ -318,6 +318,30 @@ def test_command_failure_keeps_full_log_and_surfaces_root_cause(tmp_path, monkey
     assert "error: argument --output-name: expected one argument" in log
 
 
+def test_worker_commands_stay_in_current_process_group(monkeypatch):
+    import generic_media
+    import process_worker_impl as worker
+    import media2md_runtime as runtime
+
+    calls: list[dict[str, object]] = []
+
+    def fake_run_logged(command, **kwargs):
+        calls.append({
+            "command": command,
+            "start_new_session": kwargs.get("start_new_session"),
+            "cwd": kwargs.get("cwd"),
+        })
+        return runtime.subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(generic_media, "run_logged", fake_run_logged)
+    monkeypatch.setattr(worker, "run_logged", fake_run_logged)
+
+    generic_media.run(["yt-dlp", "--version"], timeout=30)
+    worker.run_command(["gallery-dl", "--version"], timeout=30)
+
+    assert [call["start_new_session"] for call in calls] == [False, False]
+
+
 def test_successful_leading_hyphen_video_writes_safe_markdown_and_keeps_original_id(tmp_path, monkeypatch):
     import generic_media
 

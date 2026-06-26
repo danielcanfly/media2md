@@ -13,6 +13,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from media2md_paths import command_path
 from media2md_ytdlp import (
     classify_access_error, doctor_payload as youtube_environment_payload,
     browser_safety_payload, impersonation_args, impersonation_targets, po_token_providers, youtube_access_args,
@@ -27,7 +28,7 @@ INSTALOADER = ROOT / "scripts" / "instagram_instaloader.py"
 
 
 def command(name: str) -> str | None:
-    return shutil.which(name) or (str(ROOT / ".venv" / "bin" / name) if (ROOT / ".venv" / "bin" / name).is_file() else None)
+    return command_path(name)
 
 
 def auth_args(provider: str) -> list[str]:

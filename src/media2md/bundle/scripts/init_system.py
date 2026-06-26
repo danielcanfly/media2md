@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
+from media2md_paths import command_path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -384,14 +385,14 @@ def healthcheck(
 
     checks.append(
         (
-            sys.version_info >= (3, 12),
-            "Python >= 3.12",
+            sys.version_info >= (3, 11),
+            "Python >= 3.11",
             sys.version.split()[0],
         )
     )
 
     for command in ["ffmpeg", "instaloader", "mlx_whisper"]:
-        path = shutil.which(command)
+        path = command_path(command)
         checks.append(
             (
                 path is not None,
