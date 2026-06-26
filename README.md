@@ -12,6 +12,29 @@ It is built for operator-controlled workflows rather than cloud automation. Medi
 - Browser-profile-based auth reuse without storing credentials in the package
 - Queue, creator sync, processing, runtime, and health-check commands in one tool
 
+## What It Helps With
+
+Media2MD is aimed at a very practical problem: keeping up with creator output without having to manually watch, sort, and summarize every update yourself.
+
+It is especially useful when you want to:
+
+- track specific creators over time instead of checking them manually
+- let an agent run scheduled collection and follow-up workflows
+- turn media output into Markdown that can later be organized into a wiki or knowledge base
+- process content locally on your own machine instead of relying on a hosted external service
+
+The automation surface is designed for agent use, and current agent-oriented scheduling/adaptation work is primarily aligned with OpenClaw-based workflows.
+
+## Core Capabilities
+
+- Track creators and sync their catalogs across supported providers
+- Run batch processing with configurable limits and per-type batch sizing
+- Prefer one long YouTube video per batch when long-form processing should stay isolated
+- Reuse local browser-backed auth for provider access where supported
+- Generate Markdown artifacts that are easier for agents to summarize, tag, transform, or import into a knowledge base
+- Run health checks, access diagnostics, backup, and verification from the CLI
+- Operate entirely on local machine resources for download, processing, and transcription workflows
+
 ## Install
 
 Install from PyPI:
@@ -229,6 +252,8 @@ Run the scheduler tick manually:
 ```bash
 media2md scheduler tick --non-interactive --output ndjson
 ```
+
+See the full command reference in [docs/CLI_REFERENCE.md](./docs/CLI_REFERENCE.md).
 
 ## Typical Use Cases
 
