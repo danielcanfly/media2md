@@ -133,7 +133,7 @@ def test_v091_installer_and_active_versions_are_consistent():
     import media2md.bootstrap as bootstrap
 
     root = Path(__file__).resolve().parents[1]
-    installer_path = root / "install_media2md_v091.py"
+    installer_path = root / "docs" / "archive" / "installers" / "install_media2md_v091.py"
     spec = importlib.util.spec_from_file_location("installer_v091", installer_path)
     assert spec and spec.loader
     installer = importlib.util.module_from_spec(spec)

@@ -191,7 +191,7 @@ def test_v079_acceptance_documents_live_efficiency_regressions():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    text = (root / "STRICT_ACCEPTANCE_V079.md").read_text()
+    text = (root / "docs" / "archive" / "acceptance" / "STRICT_ACCEPTANCE_V079.md").read_text()
     assert "preferred_transport" in text
     assert "page-wide circuit breaker" in text
     assert "remaining page budget is below five seconds" in text

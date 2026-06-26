@@ -54,7 +54,7 @@ def test_backup_accepts_zero_byte_files_and_excludes_runtime_locks(tmp_path, mon
 
 def test_release_manifest_contains_no_bundled_runtime_lock_files():
     root = Path(__file__).resolve().parents[1]
-    manifest = json.loads((root / "RELEASE_MANIFEST.json").read_text(encoding="utf-8"))
+    manifest = json.loads((root / "docs" / "archive" / "release" / "RELEASE_MANIFEST_v091.json").read_text(encoding="utf-8"))
     assert not any(
         str(path).startswith("src/media2md/bundle/logs/")
         for path in manifest["files"]

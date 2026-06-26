@@ -221,7 +221,7 @@ def test_instagram_human_run_prints_completion_summary(monkeypatch, capsys):
 
 def test_v073_install_guide_is_fail_fast_and_versioned():
     root = Path(__file__).resolve().parents[1]
-    guide = (root / "MEDIA2MD_V073_INSTALL.md").read_text()
+    guide = (root / "docs" / "archive" / "install-guides" / "MEDIA2MD_V073_INSTALL.md").read_text()
     assert "set -euo pipefail" in guide
     assert 'test -f "$ZIP"' in guide
     assert "install_media2md_v073.py" in guide

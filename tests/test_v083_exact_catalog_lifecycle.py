@@ -139,7 +139,7 @@ def test_force_full_after_exact_completion_bootstraps_fresh_cursor_scan(tmp_path
 
 def test_installer_repairs_only_matching_tiktok_exact_snapshot(tmp_path):
     root = Path(__file__).resolve().parents[1]
-    installer_path = root / "install_media2md_v083.py"
+    installer_path = root / "docs" / "archive" / "installers" / "install_media2md_v083.py"
     spec = importlib.util.spec_from_file_location("installer_v083", installer_path)
     assert spec and spec.loader
     installer = importlib.util.module_from_spec(spec)

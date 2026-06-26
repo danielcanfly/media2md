@@ -93,7 +93,7 @@ def test_tiktok_full_sync_reuses_secuid_after_first_page(tmp_path, monkeypatch):
 
 def test_install_guide_is_fail_fast_and_checks_archive():
     root = Path(__file__).resolve().parents[1]
-    guide = (root / "MEDIA2MD_V072_INSTALL.md").read_text()
+    guide = (root / "docs" / "archive" / "install-guides" / "MEDIA2MD_V072_INSTALL.md").read_text()
     assert "set -euo pipefail" in guide
     assert 'test -f "$ZIP"' in guide
     assert "media2md 0.7.2" in guide

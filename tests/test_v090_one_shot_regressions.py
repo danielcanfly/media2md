@@ -274,7 +274,7 @@ def test_v090_installer_repairs_exact_and_marks_nonempty_cursor_checkpoint_stage
     import importlib.util
 
     root = Path(__file__).resolve().parents[1]
-    installer_path = root / "install_media2md_v090.py"
+    installer_path = root / "docs" / "archive" / "installers" / "install_media2md_v090.py"
     spec = importlib.util.spec_from_file_location("installer_v090", installer_path)
     assert spec and spec.loader
     installer = importlib.util.module_from_spec(spec)

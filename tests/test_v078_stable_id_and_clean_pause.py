@@ -116,7 +116,7 @@ def test_v078_release_docs_capture_live_regression():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    text = (root / "STRICT_ACCEPTANCE_V078.md").read_text()
+    text = (root / "docs" / "archive" / "acceptance" / "STRICT_ACCEPTANCE_V078.md").read_text()
     assert "stable-ID" in text
     assert "page_budget_exhausted" in text
     assert "second_profile_fetch=false" in text

@@ -193,7 +193,7 @@ def test_installer_repairs_exact_and_migrates_cursor_device_state(tmp_path):
     import sqlite3
 
     root = Path(__file__).resolve().parents[1]
-    installer_path = root / "install_media2md_v084.py"
+    installer_path = root / "docs" / "archive" / "installers" / "install_media2md_v084.py"
     spec = importlib.util.spec_from_file_location("installer_v084", installer_path)
     assert spec and spec.loader
     installer = importlib.util.module_from_spec(spec)
@@ -249,7 +249,7 @@ def test_installer_repairs_exact_and_migrates_cursor_device_state(tmp_path):
 
 def test_v084_acceptance_documents_staged_rebuild_contract():
     root = Path(__file__).resolve().parents[1]
-    text = (root / "STRICT_ACCEPTANCE_V084.md").read_text(encoding="utf-8")
+    text = (root / "docs" / "archive" / "acceptance" / "STRICT_ACCEPTANCE_V084.md").read_text(encoding="utf-8")
     for token in (
         "baseline_preserved",
         "rebuild_in_progress",

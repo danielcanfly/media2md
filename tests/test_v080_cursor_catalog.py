@@ -158,7 +158,7 @@ def test_v080_acceptance_documents_cursor_architecture():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    text = (root / "STRICT_ACCEPTANCE_V080.md").read_text()
+    text = (root / "docs" / "archive" / "acceptance" / "STRICT_ACCEPTANCE_V080.md").read_text()
     assert "cursor API" in text
     assert "--playlist-start" in text
     assert "SYNC_CURSOR_MODE" in text

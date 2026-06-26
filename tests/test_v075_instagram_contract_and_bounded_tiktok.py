@@ -36,7 +36,7 @@ def test_instagram_caller_and_worker_share_cookie_argument():
 
 
 def test_installer_requeues_only_known_cookie_contract_failures(tmp_path):
-    installer = load("install_media2md_v075_test", ROOT / "install_media2md_v075.py")
+    installer = load("install_media2md_v075_test", ROOT / "docs" / "archive" / "installers" / "install_media2md_v075.py")
     db = tmp_path / "data" / "state.db"
     db.parent.mkdir(parents=True)
     connection = sqlite3.connect(db)

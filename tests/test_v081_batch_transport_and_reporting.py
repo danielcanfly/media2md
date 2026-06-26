@@ -143,7 +143,7 @@ def test_creator_run_summary_exists_for_max_failure_stop(capsys):
 
 def test_v081_acceptance_covers_batch_network_and_reporting():
     root = Path(__file__).resolve().parents[1]
-    text = (root / "STRICT_ACCEPTANCE_V081.md").read_text()
+    text = (root / "docs" / "archive" / "acceptance" / "STRICT_ACCEPTANCE_V081.md").read_text()
     for token in (
         "previous_current_total", "new_since_last_sync", "AUTO_SYNC_SKIPPED",
         "TIKTOK_DOWNLOAD_ATTEMPT", "direct-plain", "CREATOR_RUN_COMPLETED",
@@ -156,4 +156,5 @@ def test_release_build_excludes_bundled_runtime_database():
     build_script = (root / "tools" / "build_release_assets.py").read_text()
     pyproject = (root / "pyproject.toml").read_text()
     assert "('src', 'media2md', 'bundle', 'data')" in build_script
-    assert 'exclude = ["src/media2md/bundle/data/**"]' in pyproject
+    assert '"src/media2md/bundle/data/**"' in pyproject
+    assert '"docs/archive/**"' in pyproject

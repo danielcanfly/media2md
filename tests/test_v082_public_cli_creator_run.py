@@ -163,7 +163,7 @@ def test_both_public_surfaces_use_shared_creator_run_decision():
 
 def test_v081_acceptance_records_live_failure_instead_of_false_pass():
     root = Path(__file__).resolve().parents[1]
-    text = (root / "STRICT_ACCEPTANCE_V081.md").read_text(encoding="utf-8")
+    text = (root / "docs" / "archive" / "acceptance" / "STRICT_ACCEPTANCE_V081.md").read_text(encoding="utf-8")
     row = next(line for line in text.splitlines() if "Partial TikTok Full Sync skips legacy Quick Sync before Batch" in line)
     assert "| FAIL |" in row
     assert "public `./bin/media2md creator run`" in row
@@ -171,7 +171,7 @@ def test_v081_acceptance_records_live_failure_instead_of_false_pass():
 
 def test_v082_acceptance_requires_public_cli_e2e():
     root = Path(__file__).resolve().parents[1]
-    text = (root / "STRICT_ACCEPTANCE_V082.md").read_text(encoding="utf-8")
+    text = (root / "docs" / "archive" / "acceptance" / "STRICT_ACCEPTANCE_V082.md").read_text(encoding="utf-8")
     for token in (
         "public `./bin/media2md`",
         "AUTO_SYNC_SKIPPED",

@@ -35,7 +35,14 @@ Issues = "https://github.com/danielcanfly/media2md/issues"
 Changelog = "https://github.com/danielcanfly/media2md/blob/main/CHANGELOG.md"
 
 [tool.hatch.build]
-exclude = ["src/media2md/bundle/data/**"]
+exclude = [
+  "src/media2md/bundle/data/**",
+  "docs/archive/**",
+  "docs/ACCEPTANCE_AUDIT_V091_20260626.md",
+  "docs/PYPI_RELEASE_CHECKLIST_V091.md",
+  "docs/RELEASE_NOTES_V091_PYPI.md",
+  "docs/RUFF_MYPY_DEBT_PLAN_V091.md",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/media2md"]

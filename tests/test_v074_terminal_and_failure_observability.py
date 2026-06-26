@@ -4,13 +4,15 @@ from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
 SCRIPTS=ROOT/'src'/'media2md'/'bundle'/'scripts'
+INSTALLERS=ROOT/'docs'/'archive'/'installers'
+INSTALL_GUIDES=ROOT/'docs'/'archive'/'install-guides'
 
 def load(module_name, filename):
  spec=importlib.util.spec_from_file_location(module_name,SCRIPTS/filename)
  mod=importlib.util.module_from_spec(spec); assert spec and spec.loader; sys.modules[module_name]=mod; spec.loader.exec_module(mod); return mod
 
 def test_v074_installer_purges_stale_bytecode_and_direct_wrapper():
- text=(ROOT/'install_media2md_v074.py').read_text()
+ text=(INSTALLERS/'install_media2md_v074.py').read_text()
  assert 'purge_bytecode' in text
  assert '--force-reinstall' in text
  assert "scripts/media2md.py" in text
@@ -18,7 +20,7 @@ def test_v074_installer_purges_stale_bytecode_and_direct_wrapper():
  assert '-B "$ROOT/scripts/media2md.py"' in wrapper
 
 def test_install_guide_uses_child_subshell_and_no_interactive_set_e():
- text=(ROOT/'MEDIA2MD_V074_INSTALL.md').read_text()
+ text=(INSTALL_GUIDES/'MEDIA2MD_V074_INSTALL.md').read_text()
  assert '\n(\n  set -euo pipefail' in text
  assert 'upgrade_exit_code=' in text
  assert 'Do not run `set -euo pipefail` by itself' in text
