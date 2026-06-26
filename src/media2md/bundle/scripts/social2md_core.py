@@ -267,7 +267,6 @@ def offset_label(zone_name: str) -> str:
 
 def select_timezone(default: str) -> str:
     # One representative IANA zone for each currently used civil UTC offset.
-    # UTC+08 intentionally uses Taipei as the representative city.
     representatives = [
         ("UTC-12:00", "Etc/GMT+12", "International Date Line West"),
         ("UTC-11:00", "Pacific/Pago_Pago", "Pago Pago"),

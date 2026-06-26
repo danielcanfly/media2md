@@ -23,7 +23,7 @@ def test_safe_updater_present():
 
 def test_agent_skill_current():
  text=(Path(__file__).parents[1]/'src/media2md/bundle/openclaw/SKILL.md').read_text()
- assert 'auth connect youtube' in text and 'auth login youtube' not in text
+ assert 'auth connect <provider>' in text and 'auth login youtube' not in text
 
 def test_all_platform_auth_contract():
  text=(Path(__file__).parents[1]/'src/media2md/bundle/scripts/media2md_auth.py').read_text()

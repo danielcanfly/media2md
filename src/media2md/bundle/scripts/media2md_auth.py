@@ -26,7 +26,7 @@ def login(provider,browser,non_interactive,output):
   opened=webbrowser.open(LOGIN_URLS[provider],new=2); print(f'LOGIN_PAGE_OPENED provider={provider} browser={browser} opened={str(opened).lower()}'); input('Complete login, then press Enter: ')
  rows=profile_inventory(browser)
  if not rows: raise RuntimeError('No browser profiles were found.')
- chosen=next((r for r in rows if r['profile']=='Default'),rows[0])
+ chosen=rows[0]
  return connect(provider,browser,chosen['profile'],output)
 
 def list_profiles(provider,browser,output):

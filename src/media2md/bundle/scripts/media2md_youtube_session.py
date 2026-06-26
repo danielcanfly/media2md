@@ -293,8 +293,8 @@ def verify_youtube_session(video_id: str | None = None, *, persist: bool = False
     if not payload["profile_configured"]:
         payload["required_action"] = "connect_youtube_browser_profile"
         payload["guidance"] = [
-            "Run: ./bin/media2md auth profiles youtube --browser chrome",
-            "Run: ./bin/media2md auth connect youtube --browser chrome --profile <PROFILE>",
+            "Run: ./bin/media2md auth profiles youtube --browser <BROWSER>",
+            "Run: ./bin/media2md auth connect youtube --browser <BROWSER> --profile <PROFILE>",
             "Then run: ./bin/media2md auth verify youtube",
         ]
         return payload
@@ -403,4 +403,3 @@ def verify_youtube_session(video_id: str | None = None, *, persist: bool = False
     if persist:
         _persist_verification(payload)
     return payload
-
