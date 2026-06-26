@@ -40,7 +40,7 @@ media2md version
 Initialize the managed runtime:
 
 ```bash
-media2md init --language zh-TW --markdown-language zh-TW --timezone Asia/Taipei --non-interactive
+media2md init --language <language> --markdown-language <markdown-language> --timezone <timezone> --non-interactive
 ```
 
 Run a health check:
@@ -67,17 +67,17 @@ If this is your first run, a practical sequence looks like this:
 5. Sync the creator catalog or process a single item immediately.
 6. Check status, generated Markdown, and health diagnostics.
 
-A minimal YouTube-oriented setup might look like:
+A minimal setup might look like:
 
 ```bash
-pip install "media2md[youtube]"
-media2md init --language zh-TW --markdown-language zh-TW --timezone Asia/Taipei --non-interactive
-media2md auth profiles youtube --browser chrome
-media2md auth connect youtube --browser chrome --profile Default
-media2md auth verify youtube
-media2md creator add https://www.youtube.com/@TheProductFolks/videos --provider youtube
-media2md creator sync @TheProductFolks --provider youtube --force-full
-media2md creator run @TheProductFolks --provider youtube
+pip install "media2md[<provider-extra>]"
+media2md init --language <language> --markdown-language <markdown-language> --timezone <timezone> --non-interactive
+media2md auth profiles <provider> --browser <browser>
+media2md auth connect <provider> --browser <browser> --profile <profile>
+media2md auth verify <provider>
+media2md creator add <creator-url> --provider <provider>
+media2md creator sync <creator> --provider <provider> --force-full
+media2md creator run <creator> --provider <provider>
 ```
 
 ## Authentication
@@ -87,9 +87,9 @@ Media2MD reads cookies from a local browser profile that you explicitly choose.
 Typical flow:
 
 ```bash
-media2md auth profiles youtube --browser chrome
-media2md auth connect youtube --browser chrome --profile Default
-media2md auth verify youtube
+media2md auth profiles <provider> --browser <browser>
+media2md auth connect <provider> --browser <browser> --profile <profile>
+media2md auth verify <provider>
 ```
 
 The same `profiles`, `connect`, and `verify` flow is available for Instagram and TikTok.
@@ -109,34 +109,34 @@ The project is CLI-first and optimized for local execution on a machine that alr
 Add a creator and run a full sync:
 
 ```bash
-media2md creator add https://www.youtube.com/@TheProductFolks/videos --provider youtube
-media2md creator sync @TheProductFolks --provider youtube --force-full
-media2md creator status --provider youtube --creator @TheProductFolks
+media2md creator add <creator-url> --provider <provider>
+media2md creator sync <creator> --provider <provider> --force-full
+media2md creator status --provider <provider> --creator <creator>
 ```
 
 Process a single media URL:
 
 ```bash
-media2md media add https://www.youtube.com/shorts/0jttCFj5ZWM --process-now
+media2md media add <media-url> --process-now
 ```
 
 Run queue or creator processing:
 
 ```bash
-media2md creator run @TheProductFolks --provider youtube
+media2md creator run <creator> --provider <provider>
 media2md status --output ndjson
 ```
 
 Import an existing legacy project into the managed runtime:
 
 ```bash
-media2md runtime import --from-project ~/instagram-to-md
+media2md runtime import --from-project <legacy-project-path>
 ```
 
 Inspect a URL before adding it:
 
 ```bash
-media2md media inspect https://www.tiktok.com/@startupbell/video/7338632507950189826
+media2md media inspect <media-url>
 ```
 
 List tracked media:
@@ -149,8 +149,8 @@ Run a deeper environment and access check:
 
 ```bash
 media2md doctor all
-media2md doctor youtube-access --video-id dQw4w9WgXcQ --transcription-smoke-test
-media2md doctor tiktok-access --video-id 7338632507950189826 --creator startupbell
+media2md doctor youtube-access --video-id <video-id> --transcription-smoke-test
+media2md doctor tiktok-access --video-id <video-id> --creator <creator>
 ```
 
 Create and verify a state backup:
@@ -217,10 +217,10 @@ media2md settings set --instagram-backend auto --youtube-caption-first --update-
 Set creator policy:
 
 ```bash
-media2md creator policy set @TheProductFolks --provider youtube \
-  --batch-size-type youtube_short=30 \
-  --batch-size-type youtube_video=5 \
-  --batch-size-type youtube_long=1 \
+media2md creator policy set <creator> --provider <provider> \
+  --batch-size-type <type-a>=<limit-a> \
+  --batch-size-type <type-b>=<limit-b> \
+  --batch-size-type <type-c>=<limit-c> \
   --scheduled-processing
 ```
 
