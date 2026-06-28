@@ -6,6 +6,7 @@ import json
 import sqlite3
 import urllib.error
 from pathlib import Path
+import pytest
 
 
 def test_instagram_accounts_edit_is_authenticated_even_if_bundle_mentions_checkpoint(monkeypatch):
@@ -80,6 +81,39 @@ def test_tiktok_inspect_uses_bounded_fallback_and_saves_success(monkeypatch, cap
     assert "status=failed reason=tls_failure" in output
     assert "status=success" in output
     assert saved == {"creator": "antscreation", "strategy": "impersonated-direct", "authenticated": True}
+
+
+def test_instagram_inspect_reports_access_guidance_when_both_backends_fail(monkeypatch):
+    import generic_media as media
+
+    monkeypatch.setattr(media, "instagram_backend", lambda: "auto")
+    monkeypatch.setattr(
+        media,
+        "detect_provider",
+        lambda value, provider=None: "instagram",
+    )
+
+    class Target:
+        canonical_url = "https://www.instagram.com/reel/DZ95irCT4Bn/"
+        media_id = "DZ95irCT4Bn"
+        creator = None
+
+    monkeypatch.setattr(media, "normalize_media", lambda provider, value, creator=None: Target())
+    monkeypatch.setattr(media, "_inspect_instagram_gallery", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("gallery-dl returned no Instagram metadata.")))
+    monkeypatch.setattr(
+        media,
+        "_inspect_instagram_instaloader",
+        lambda shortcode: (_ for _ in ()).throw(RuntimeError(
+            "Instaloader returned a post without owner metadata. This usually means Instagram rejected anonymous metadata access for this reel."
+        )),
+    )
+
+    with pytest.raises(RuntimeError) as excinfo:
+        media.inspect("https://www.instagram.com/reels/DZ95irCT4Bn/")
+    message = str(excinfo.value)
+    assert "Both Instagram metadata backends failed." in message
+    assert "auth verify instagram" in message
+    assert "rejected" in message.lower()
 
 
 def test_youtube_shorts_only_channel_treats_missing_videos_as_empty_exact(tmp_path, monkeypatch):

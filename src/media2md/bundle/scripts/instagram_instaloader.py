@@ -109,8 +109,16 @@ def media_urls(post: Any) -> list[str]:
 def inspect_post(shortcode: str) -> dict[str, Any]:
     import instaloader
     loader = loader_context()
-    post = instaloader.Post.from_shortcode(loader.context, shortcode)
+    try:
+        post = instaloader.Post.from_shortcode(loader.context, shortcode)
+    except Exception as exc:
+        raise RuntimeError(f"Instaloader could not inspect shortcode {shortcode}: {exc}") from exc
     owner = getattr(post, "owner_profile", None)
+    if owner is None:
+        raise RuntimeError(
+            "Instaloader returned a post without owner metadata. "
+            "This usually means Instagram rejected anonymous metadata access for this reel."
+        )
     username = str(getattr(owner, "username", None) or "unknown")
     owner_id = str(getattr(owner, "userid", None) or username)
     return {

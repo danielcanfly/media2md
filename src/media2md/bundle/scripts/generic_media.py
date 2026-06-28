@@ -722,6 +722,20 @@ def _youtube_challenge_hint(error: str) -> str:
     return error
 
 
+def _instagram_metadata_access_hint(error: str) -> str:
+    lower = error.lower()
+    if any(token in lower for token in (
+        "403", "forbidden", "login", "challenge", "anonymous metadata access",
+        "could not inspect shortcode", "owner metadata", "no instagram metadata",
+    )):
+        return (
+            error
+            + "\nInstagram metadata access was rejected. Reconnect or verify the selected browser profile, "
+              "then retry with 'media2md auth verify instagram'."
+        )
+    return error
+
+
 def _is_tiktok_opaque_identifier(value: str | None) -> bool:
     text = str(value or "").strip().lstrip("@")
     return bool(text) and (text.isdigit() or text.startswith("MS4wLjAB") or len(text) > 40)
@@ -800,7 +814,11 @@ def inspect(value: str, provider: str | None = None, creator: str | None = None)
                 return payload
             except Exception as instaloader_error:
                 if gallery_error:
-                    raise RuntimeError(f"Both Instagram metadata backends failed. gallery-dl={gallery_error}; instaloader={instaloader_error}") from instaloader_error
+                    combined = (
+                        f"Both Instagram metadata backends failed. "
+                        f"gallery-dl={gallery_error}; instaloader={instaloader_error}"
+                    )
+                    raise RuntimeError(_instagram_metadata_access_hint(combined)) from instaloader_error
                 raise
     if provider == "tiktok":
         tiktok_creator = _human_tiktok_handle(target.creator, creator)
