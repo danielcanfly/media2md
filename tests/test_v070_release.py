@@ -57,6 +57,35 @@ def test_managed_runtime_import_legacy(monkeypatch,tmp_path):
     assert result['count']==1
     assert (bootstrap.state_root()/'config'/'custom.json').is_file()
 
+def test_managed_runtime_bootstrap_seeds_legacy_config_from_project_registry(monkeypatch,tmp_path):
+    import media2md.bootstrap as bootstrap
+
+    home = tmp_path / 'home'
+    monkeypatch.setenv('HOME', str(home))
+    legacy = tmp_path / 'legacy-project'
+    (legacy / 'config').mkdir(parents=True)
+    (legacy / 'config' / 'auth_profiles.json').write_text(
+        '{"schema_version":5,"providers":{"tiktok":{"mode":"browser_profile","browser":"chrome","profile":"Default"}}}\n'
+    )
+    (legacy / 'config' / 'social2md.json').write_text('{"timezone":"UTC"}\n')
+    registry = home / '.config' / 'media2md' / 'project.json'
+    registry.parent.mkdir(parents=True)
+    registry.write_text(json.dumps({
+        'schema_version': 2,
+        'project_root': str(legacy),
+        'managed_runtime': False,
+        'version': '0.9.1',
+    }) + '\n')
+
+    bootstrap.ensure_runtime(force=True)
+
+    auth = bootstrap.state_root() / 'config' / 'auth_profiles.json'
+    config = bootstrap.state_root() / 'config' / 'social2md.json'
+    assert auth.is_file()
+    assert config.is_file()
+    assert json.loads(auth.read_text())['providers']['tiktok']['profile'] == 'Default'
+    assert json.loads(config.read_text())['timezone'] == 'UTC'
+
 def test_real_ffmpeg_chunk_split(tmp_path):
     import shutil, subprocess
     import generic_media

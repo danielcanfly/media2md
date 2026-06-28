@@ -56,6 +56,49 @@ def _ensure_state():
   if not target.exists():
    with item.open('rb') as src, target.open('wb') as out: shutil.copyfileobj(src,out)
 
+def _project_registry_candidates()->list[Path]:
+ seen=set(); rows=[]
+ for path in (
+  _config_home()/'project.json',
+  Path.home()/'.config'/'media2md'/'project.json',
+  Path.home()/'.config'/'social2md'/'project.json',
+ ):
+  key=str(path)
+  if key in seen: continue
+  seen.add(key); rows.append(path)
+ return rows
+
+def _legacy_project_root()->Path|None:
+ for registry in _project_registry_candidates():
+  try: payload=json.loads(registry.read_text(encoding='utf-8'))
+  except (FileNotFoundError,json.JSONDecodeError,OSError): continue
+  if payload.get('managed_runtime') is True: continue
+  root=Path(str(payload.get('project_root') or '')).expanduser()
+  if root.is_dir(): return root.resolve()
+ return None
+
+def _seed_state_from_legacy(state:Path)->list[str]:
+ legacy=_legacy_project_root()
+ if not legacy: return []
+ copied=[]
+ defaults=resources.files('media2md').joinpath('bundle/defaults')
+ for rel in (
+  'config/auth_profiles.json',
+  'config/social2md.json',
+  'config/creator_policies.json',
+  'config/provider_policies.json',
+ ):
+  src=legacy/rel
+  dst=state/rel
+  if not src.is_file(): continue
+  if dst.exists():
+   default=defaults/Path(rel).name
+   if not default.is_file() or dst.read_bytes()!=default.read_bytes(): continue
+  dst.parent.mkdir(parents=True,exist_ok=True)
+  shutil.copy2(src,dst)
+  copied.append(rel)
+ return copied
+
 def ensure_runtime(force:bool=False)->Path:
  root=runtime_root(); marker=root/'.complete'
  with _runtime_lock():
@@ -69,7 +112,7 @@ def ensure_runtime(force:bool=False)->Path:
     if p.exists(): p.chmod(p.stat().st_mode|stat.S_IXUSR|stat.S_IXGRP|stat.S_IXOTH)
    for p in (root/'scripts').glob('*.py'): p.chmod(p.stat().st_mode|stat.S_IXUSR)
    marker.write_text(VERSION+'\n')
-  _ensure_state(); state=state_root()
+  _ensure_state(); state=state_root(); _seed_state_from_legacy(state)
   for d in STATE_DIRS:
    target=root/d
    if target.is_symlink() or target.exists():
