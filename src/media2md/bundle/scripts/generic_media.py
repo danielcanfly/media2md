@@ -1376,21 +1376,20 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Path:
                 conn.commit()
 
         if not text:
-            if provider == "youtube":
-                cached = find_cached_audio(work, canonical_source, external_id)
-                if cached:
-                    media, manifest = cached
-                    audio_download_strategy = "cached_audio"
-                    audio_used_auth = bool(manifest.get("uses_auth"))
-                    resumed_from_checkpoint = True
-                    audio_attempts.append({
-                        "strategy": "cached_audio", "client": "local_checkpoint",
-                        "uses_auth": audio_used_auth, "ok": True, "error": None,
-                    })
-                else:
-                    media, audio_download_strategy, audio_used_auth, audio_attempts = download_youtube_audio(
-                        canonical_source, work, external_id
-                    )
+            cached = find_cached_audio(work, canonical_source, external_id)
+            if cached:
+                media, manifest = cached
+                audio_download_strategy = "cached_audio"
+                audio_used_auth = bool(manifest.get("uses_auth"))
+                resumed_from_checkpoint = True
+                audio_attempts.append({
+                    "strategy": "cached_audio", "client": "local_checkpoint",
+                    "uses_auth": audio_used_auth, "ok": True, "error": None,
+                })
+            elif provider == "youtube":
+                media, audio_download_strategy, audio_used_auth, audio_attempts = download_youtube_audio(
+                    canonical_source, work, external_id
+                )
             else:
                 try:
                     if provider == "tiktok":
@@ -1398,8 +1397,9 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Path:
                             canonical_source, work, external_id, creator, template
                         )
                     else:
+                        provider_auth_args = auth_args(provider)
                         run([
-                            command("yt-dlp"), *ytdlp_args, *auth_args(provider), "--no-playlist", "--no-progress",
+                            command("yt-dlp"), *ytdlp_args, *provider_auth_args, "--no-playlist", "--no-progress",
                             "--retries", "5", "--socket-timeout", "120", "-f", "ba/b", "-x",
                             "--audio-format", "m4a", "-o", template, canonical_source
                         ], timeout=1800)
@@ -1407,6 +1407,16 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Path:
                         if not files:
                             raise RuntimeError("yt-dlp completed but no media file was created.")
                         media = max(files, key=lambda path: path.stat().st_size)
+                        audio_download_strategy = "yt-dlp-default"
+                        audio_used_auth = bool(provider_auth_args)
+                        audio_attempts.append({
+                            "strategy": "yt-dlp-default", "client": "default",
+                            "uses_auth": audio_used_auth, "ok": True, "error": None,
+                        })
+                        _write_audio_manifest(
+                            work, media, source_url=canonical_source, external_id=external_id,
+                            strategy=str(audio_download_strategy), uses_auth=bool(audio_used_auth),
+                        )
                 except KeyboardInterrupt:
                     raise
                 except Exception as exc:

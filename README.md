@@ -4,6 +4,8 @@ Media2MD is a local-first command-line tool for downloading supported media from
 
 It is built for operator-controlled workflows rather than cloud automation. Media2MD can reuse a browser session you already authenticated locally, but it does not enter passwords, bypass 2FA, solve CAPTCHAs, or defeat platform challenges.
 
+The CLI currently supports English, Japanese, and Chinese locale presets. In code, the supported locale values are `en`, `ja`, `zh-TW`, and `zh-CN`.
+
 ## Why Media2MD
 
 - One CLI for Instagram, YouTube, and TikTok intake
@@ -66,6 +68,14 @@ Initialize the managed runtime:
 media2md init --language <language> --markdown-language <markdown-language> --timezone <timezone> --non-interactive
 ```
 
+Examples:
+
+```bash
+media2md init --language ja --markdown-language ja --timezone Asia/Tokyo --non-interactive
+media2md init --language zh-TW --markdown-language zh-TW --timezone Asia/Taipei --non-interactive
+media2md init --language en --markdown-language en --timezone <timezone> --non-interactive
+```
+
 Run a health check:
 
 ```bash
@@ -101,6 +111,14 @@ media2md auth verify <provider>
 media2md creator add <creator-url> --provider <provider>
 media2md creator sync <creator> --provider <provider> --force-full
 media2md creator run <creator> --provider <provider>
+```
+
+Language-specific initialization examples:
+
+```bash
+media2md init --language ja --markdown-language ja --timezone Asia/Tokyo --non-interactive
+media2md init --language zh-TW --markdown-language zh-TW --timezone Asia/Taipei --non-interactive
+media2md init --language en --markdown-language en --timezone <timezone> --non-interactive
 ```
 
 ## Authentication

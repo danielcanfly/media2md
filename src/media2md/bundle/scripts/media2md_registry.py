@@ -2776,6 +2776,10 @@ def _creator_run_summary(
         }, ensure_ascii=False), flush=True)
 
 
+def _runtime_limit_error(text: str) -> bool:
+    return "item exceeded remaining runtime limit" in str(text or "").lower()
+
+
 def _actual_creator_remaining(provider: str, handle: str) -> int:
     conn = connect()
     creator = conn.execute(
@@ -2815,6 +2819,7 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
     failures = 0
     processed_total = 0
     durations: list[float] = []
+    runtime_paused = False
 
     while True:
         if runtime_limit is not None and time.monotonic() - started >= runtime_limit:
@@ -2967,35 +2972,55 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
             conn = connect()
             sync_generic_status_from_legacy(conn, provider, row["external_id"])
             if result.returncode != 0:
-                failures += 1
                 error_text = (result.stderr or result.stdout or f"generic_media exit code {result.returncode}")[-4000:]
+                timed_out = _runtime_limit_error(error_text)
                 def marker(name: str) -> str | None:
                     match = re.search(rf"\[{name}=([^\]]+)\]", error_text)
                     return match.group(1) if match else None
                 stage = marker("stage") or "process"
-                error_code = marker("error_code") or "process_error"
+                error_code = marker("error_code") or ("runtime_budget_exhausted" if timed_out else "process_error")
                 retryable_marker = marker("retryable")
-                retryable = retryable_marker == "true" if retryable_marker else stage not in {"render", "validation"}
+                retryable = True if timed_out else (retryable_marker == "true" if retryable_marker else stage not in {"render", "validation"})
                 action_required = marker("action_required") == "true"
                 required_action = marker("required_action")
                 root_cause = marker("root_cause")
                 log_path = marker("log_path")
-                conn.execute("UPDATE media SET status='failed',last_error=?,updated_at=? WHERE id=?", (error_text,iso_now(),row["id"]))
-                if output == "human":
-                    print(f"ITEM_FAILED provider={provider} creator={handle} media_id={row['external_id']} stage={stage} retryable={str(retryable).lower()} error_code={error_code} action_required={str(action_required).lower()}")
-                    if required_action:
-                        print(f"required_action={required_action}")
-                    if root_cause:
-                        print("root_cause=" + root_cause)
-                    if log_path:
-                        print("log_path=" + log_path)
-                    if not root_cause:
-                        print("error_tail=" + error_text.replace("\n", " ")[-1200:])
+                if timed_out:
+                    runtime_paused = True
+                    conn.execute(
+                        "UPDATE media SET status='pending',last_error='Runtime limit reached; resume will continue from cached checkpoints',updated_at=? WHERE id=?",
+                        (iso_now(), row["id"]),
+                    )
+                    if output == "human":
+                        print(
+                            f"ITEM_PAUSED provider={provider} creator={handle} media_id={row['external_id']} "
+                            f"stage={stage} retryable=true error_code={error_code}"
+                        )
+                    else:
+                        print(json.dumps({
+                            "schema_version": 12, "event": "item_paused", "provider": provider, "creator": handle,
+                            "media_id": row["external_id"], "stage": stage, "error": error_text,
+                            "error_code": error_code, "retryable": True, "action_required": False,
+                            "required_action": None, "root_cause": root_cause, "log_path": log_path,
+                        }, ensure_ascii=False), flush=True)
                 else:
-                    print(json.dumps({"schema_version":12,"event":"item_failed","provider":provider,"creator":handle,
-                                      "media_id":row["external_id"],"stage":stage,"error":error_text,"error_code":error_code,
-                                      "root_cause":root_cause,"log_path":log_path,"retryable":retryable,
-                                      "action_required":action_required,"required_action":required_action},ensure_ascii=False),flush=True)
+                    failures += 1
+                    conn.execute("UPDATE media SET status='failed',last_error=?,updated_at=? WHERE id=?", (error_text,iso_now(),row["id"]))
+                    if output == "human":
+                        print(f"ITEM_FAILED provider={provider} creator={handle} media_id={row['external_id']} stage={stage} retryable={str(retryable).lower()} error_code={error_code} action_required={str(action_required).lower()}")
+                        if required_action:
+                            print(f"required_action={required_action}")
+                        if root_cause:
+                            print("root_cause=" + root_cause)
+                        if log_path:
+                            print("log_path=" + log_path)
+                        if not root_cause:
+                            print("error_tail=" + error_text.replace("\n", " ")[-1200:])
+                    else:
+                        print(json.dumps({"schema_version":12,"event":"item_failed","provider":provider,"creator":handle,
+                                          "media_id":row["external_id"],"stage":stage,"error":error_text,"error_code":error_code,
+                                          "root_cause":root_cause,"log_path":log_path,"retryable":retryable,
+                                          "action_required":action_required,"required_action":required_action},ensure_ascii=False),flush=True)
             conn.commit()
             conn.close()
 
@@ -3032,6 +3057,14 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
                     "eta_confidence":confidence,
                     "failures":failures,
                 }, ensure_ascii=False), flush=True)
+
+            if runtime_paused:
+                _creator_run_summary(
+                    provider=provider, handle=handle, batches=batches, processed=processed_total,
+                    failures=failures, status="paused_runtime_limit",
+                    remaining=_actual_creator_remaining(provider, handle), output=output,
+                )
+                return 0
 
             if failures >= max_failures or (stop_on_failure and result.returncode != 0):
                 _creator_run_summary(

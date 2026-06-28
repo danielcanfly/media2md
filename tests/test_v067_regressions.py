@@ -78,6 +78,27 @@ def test_completed_audio_manifest_is_resumable(tmp_path):
     assert audio.exists()
 
 
+def test_completed_generic_audio_manifest_is_resumable(tmp_path):
+    import generic_media
+
+    work = tmp_path / "work"
+    work.mkdir()
+    audio = work / "clip.m4a"
+    audio.write_bytes(b"complete-audio")
+    generic_media._write_audio_manifest(
+        work, audio,
+        source_url="https://www.tiktok.com/@example/video/123",
+        external_id="123",
+        strategy="direct-plain",
+        uses_auth=False,
+    )
+    cached = generic_media.find_cached_audio(
+        work, "https://www.tiktok.com/@example/video/123", "123"
+    )
+    assert cached is not None
+    assert cached[0] == audio
+
+
 def test_unmanifested_partial_audio_is_removed(tmp_path):
     import generic_media
 

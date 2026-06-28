@@ -189,6 +189,63 @@ def test_batch_start_lists_selected_media_ids(tmp_path, monkeypatch, capsys):
     assert 'selected_media_ids=["J92OMF6HUaM"]' in output
 
 
+def test_runtime_limit_pause_is_not_counted_as_failure(tmp_path, monkeypatch, capsys):
+    import media2md_registry as registry
+
+    monkeypatch.setattr(registry, "DB", tmp_path / "media2md.db")
+    monkeypatch.setattr(registry, "CONFIG", tmp_path / "config.json")
+    (tmp_path / "config.json").write_text('{"providers":{"youtube":{"long_video_threshold_seconds":2700}}}')
+    conn = registry.connect()
+    now = registry.iso_now()
+    conn.execute(
+        "INSERT INTO creators(provider,external_id,handle,source_url,created_at,updated_at) VALUES('tiktok','SEC','paused','https://www.tiktok.com/@paused',?,?)",
+        (now, now),
+    )
+    creator_id = conn.execute("SELECT id FROM creators").fetchone()[0]
+    conn.execute(
+        """INSERT INTO media(provider,creator_id,external_id,source_url,duration_seconds,media_type,processing_class,is_current,status,published_at,created_at,updated_at)
+           VALUES('tiktok',?,'123','https://www.tiktok.com/@paused/video/123',47,'tiktok_video','tiktok_video',1,'pending','2026-06-24',?,?)""",
+        (creator_id, now, now),
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(registry, "sync_generic_status_from_legacy", lambda *a, **k: None)
+
+    class FakeProcess:
+        pid = 99999
+        returncode = None
+        timed_out_once = False
+
+        def communicate(self, timeout=None):
+            if timeout is not None and not self.timed_out_once:
+                self.timed_out_once = True
+                raise registry.subprocess.TimeoutExpired(["generic_media.py"], timeout or 1)
+            return "", ""
+
+        def wait(self, timeout=None):
+            self.returncode = 124
+            return self.returncode
+
+    monkeypatch.setattr(registry.subprocess, "Popen", lambda *a, **k: FakeProcess())
+    monkeypatch.setattr(registry.os, "killpg", lambda *a, **k: None)
+
+    code = registry.creator_run(
+        "tiktok", "paused", "batch", 1, 1, 1, False, 0,
+        None, None, None, None, "newest_first", "human", 1,
+        {},
+    )
+    assert code == 0
+    output = capsys.readouterr().out
+    assert "ITEM_PAUSED provider=tiktok creator=paused media_id=123" in output
+    assert "status=paused_runtime_limit" in output
+    conn = registry.connect()
+    row = conn.execute("SELECT status,last_error FROM media WHERE external_id='123'").fetchone()
+    conn.close()
+    assert row["status"] == "pending"
+    assert "resume will continue from cached checkpoints" in row["last_error"]
+
+
 def test_instagram_human_run_prints_completion_summary(monkeypatch, capsys):
     import social2md_core as core
 
