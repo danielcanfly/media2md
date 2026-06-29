@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "media2md"
-version = "0.9.3"
+version = "0.9.4"
 description = "Agent-ready Instagram, YouTube, and TikTok media-to-Markdown pipeline."
 readme = "README.md"
 requires-python = ">=3.11"

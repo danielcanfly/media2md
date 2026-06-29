@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.4 - 2026-06-29
+
+- Refine the public project surface with a cleaner README focused on installation, first-run usage, and the main workflows new users need first.
+- Add a dedicated first-run guide covering install, initialization, auth, creator tracking, processing, output discovery, backup, runtime relocation, and uninstall behavior.
+- Update the CLI reference so the documented runtime commands match the current packaged CLI, including `runtime base-path` and `runtime set-base-path`.
+
 ## 0.9.3 - 2026-06-29
 
 - Add `creator refresh-catalog` as the preferred public command name for refreshing creator catalogs while keeping `creator sync` available in the full command surface.
