@@ -90,3 +90,17 @@ def test_runtime_set_base_path_migrates_existing_managed_tree(monkeypatch,tmp_pa
  assert payload['managed_base']==str(target)
  assert (target/'state'/'markdown'/'sample.txt').read_text(encoding='utf-8')=='ok'
  assert not root.exists()
+
+def test_uninstall_requires_execute_pip_to_remove_package(monkeypatch,tmp_path,capsys):
+ monkeypatch.setenv('HOME',str(tmp_path))
+ from media2md.bundle.scripts import media2md as public_cli
+ calls=[]
+ monkeypatch.setattr(public_cli, 'remove_openclaw_cron', lambda: (0, []))
+ monkeypatch.setattr(public_cli, 'run', lambda cmd, check=False: calls.append(cmd) or 0)
+ args=type('Args',(),{'purge_data':False,'yes':False,'confirm':None,'execute_pip':False,'apply':False})()
+ assert public_cli.uninstall(args)==0
+ out=capsys.readouterr().out
+ assert 'MEDIA2MD_UNINSTALL_PREPARED' in out
+ assert 'package_uninstalled=false' in out
+ assert '--execute-pip' in out
+ assert calls==[]

@@ -41,3 +41,24 @@ def test_render_stage_progress_looks_like_single_line_progress(capsys):
     assert "item 1/1" in output
     assert "batch 1/163" in output
     assert "elapsed 00:01:33" in output
+
+
+def test_creator_run_summary_includes_result_folder_and_finder_hint(capsys):
+    module = _load_registry()
+    root = Path("/tmp/media2md/markdown/youtube/creator-name/videos")
+    module._creator_run_summary(
+        provider="youtube",
+        handle="creator-name",
+        batches=1,
+        processed=1,
+        failures=0,
+        status="completed",
+        remaining=0,
+        output="human",
+        markdown_root=root,
+        latest_markdown_path=str(root / "example.md"),
+    )
+    output = capsys.readouterr().out
+    assert "latest_markdown_path=" in output
+    assert "result_folder=" in output
+    assert "open_in_finder_hint=open " in output

@@ -2772,6 +2772,8 @@ def _creator_run_summary(
             print(f"latest_markdown_path={latest_markdown_path}")
         if markdown_root:
             print(f"markdown_root={markdown_root}")
+            print(f"result_folder={markdown_root}")
+            print(f"open_in_finder_hint=open \"{markdown_root}\"")
     else:
         print(json.dumps({
             "schema_version": 14, "event": "creator_run_completed",
