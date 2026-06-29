@@ -2,7 +2,7 @@
 
 Media2MD is a local-first command-line tool for downloading supported media from Instagram, YouTube, and TikTok, transcribing speech locally, and turning the results into structured Markdown.
 
-It is built for operator-controlled workflows rather than cloud automation. Media2MD can reuse a browser session you already authenticated locally, but it does not enter passwords, bypass 2FA, solve CAPTCHAs, or defeat platform challenges.
+It is designed for both direct human use in the terminal and agent-driven workflows that need stable commands, schedulable operations, and machine-readable output. Media2MD can reuse a browser session you already authenticated locally, but it does not enter passwords, bypass 2FA, solve CAPTCHAs, or defeat platform challenges.
 
 The CLI currently supports English, Japanese, and Chinese locale presets. In code, the supported locale values are `en`, `ja`, `zh-TW`, and `zh-CN`.
 
@@ -13,6 +13,7 @@ The CLI currently supports English, Japanese, and Chinese locale presets. In cod
 - Markdown output that is easy to archive, search, or hand to agents
 - Browser-profile-based auth reuse without storing credentials in the package
 - Queue, creator sync, processing, runtime, and health-check commands in one tool
+- Human-friendly CLI flows plus stable surfaces for automation and agent orchestration
 
 ## What It Helps With
 
@@ -25,7 +26,7 @@ It is especially useful when you want to:
 - turn media output into Markdown that can later be organized into a wiki or knowledge base
 - process content locally on your own machine instead of relying on a hosted external service
 
-The automation surface is designed for agent use, and current agent-oriented scheduling/adaptation work is primarily aligned with OpenClaw-based workflows.
+The automation surface is designed for agent use, and current agent-oriented scheduling and adaptation work is primarily aligned with OpenClaw-based workflows.
 
 ## Core Capabilities
 
@@ -105,12 +106,12 @@ A minimal setup might look like:
 ```bash
 pip install "media2md[<provider-extra>]"
 media2md init --language <language> --markdown-language <markdown-language> --timezone <timezone> --non-interactive
-media2md auth profiles <provider> --browser <browser>
-media2md auth connect <provider> --browser <browser> --profile <profile>
-media2md auth verify <provider>
-media2md creator add <creator-url> --provider <provider>
-media2md creator sync <creator> --provider <provider> --force-full
-media2md creator run <creator> --provider <provider>
+media2md auth profiles youtube --browser chrome
+media2md auth connect youtube --browser chrome --profile Default
+media2md auth verify youtube
+media2md creator add https://www.youtube.com/@creator-name --provider youtube
+media2md creator sync @creator-name --provider youtube --force-full
+media2md creator run @creator-name --provider youtube
 ```
 
 Language-specific initialization examples:
@@ -128,12 +129,28 @@ Media2MD reads cookies from a local browser profile that you explicitly choose.
 Typical flow:
 
 ```bash
-media2md auth profiles <provider> --browser <browser>
-media2md auth connect <provider> --browser <browser> --profile <profile>
-media2md auth verify <provider>
+media2md auth profiles youtube --browser chrome
+media2md auth connect youtube --browser chrome --profile Default
+media2md auth verify youtube
 ```
 
-The same `profiles`, `connect`, and `verify` flow is available for Instagram and TikTok.
+Instagram example:
+
+```bash
+media2md auth profiles instagram --browser chrome
+media2md auth connect instagram --browser chrome --profile Default
+media2md auth verify instagram
+```
+
+TikTok example:
+
+```bash
+media2md auth profiles tiktok --browser chrome
+media2md auth connect tiktok --browser chrome --profile Default
+media2md auth verify tiktok
+```
+
+The same `profiles`, `connect`, and `verify` flow is available for all supported providers.
 
 ## Provider Support
 
@@ -150,9 +167,9 @@ The project is CLI-first and optimized for local execution on a machine that alr
 Add a creator and run a full sync:
 
 ```bash
-media2md creator add <creator-url> --provider <provider>
-media2md creator sync <creator> --provider <provider> --force-full
-media2md creator status --provider <provider> --creator <creator>
+media2md creator add https://www.youtube.com/@creator-name --provider youtube
+media2md creator sync @creator-name --provider youtube --force-full
+media2md creator status --provider youtube --creator @creator-name
 ```
 
 Process a single media URL:
@@ -164,7 +181,7 @@ media2md media add <media-url> --process-now
 Run queue or creator processing:
 
 ```bash
-media2md creator run <creator> --provider <provider>
+media2md creator run @creator-name --provider youtube
 media2md status --output ndjson
 ```
 
@@ -185,6 +202,8 @@ List tracked media:
 ```bash
 media2md media list --provider tiktok
 ```
+
+Creator inputs can be either full creator URLs or provider-qualified handles. For bare handles such as `@creator-name` or `creator-name`, pass `--provider` explicitly so the CLI knows which platform to target.
 
 Run a deeper environment and access check:
 
@@ -307,7 +326,7 @@ Media2MD does not:
 
 ## Project Status
 
-Current published version: `0.9.1`
+Current published version: `0.9.2`
 
 Recent release themes in `0.9.x` include:
 

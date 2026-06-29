@@ -29,10 +29,10 @@ media2md uninstall
 
 ```bash
 media2md init --language <language> --markdown-language <markdown-language> --timezone <timezone> --non-interactive
-media2md auth connect <provider> --browser <browser> --profile <profile>
-media2md creator add <creator-url> --provider <provider>
-media2md creator sync <creator> --provider <provider> --force-full
-media2md creator run <creator> --provider <provider>
+media2md auth connect youtube --browser chrome --profile Default
+media2md creator add https://www.youtube.com/@creator-name --provider youtube
+media2md creator sync @creator-name --provider youtube --force-full
+media2md creator run @creator-name --provider youtube
 media2md media add <media-url> --process-now
 media2md status --output ndjson
 media2md doctor all
@@ -56,9 +56,9 @@ media2md auth capabilities
 Typical uses:
 
 ```bash
-media2md auth profiles <provider> --browser <browser>
-media2md auth connect <provider> --browser <browser> --profile <profile>
-media2md auth verify <provider>
+media2md auth profiles youtube --browser chrome
+media2md auth connect youtube --browser chrome --profile Default
+media2md auth verify youtube
 media2md auth status --output ndjson
 ```
 
@@ -100,10 +100,10 @@ media2md creator delete
 Typical uses:
 
 ```bash
-media2md creator add <creator-url> --provider <provider>
-media2md creator status --provider <provider> --creator <creator>
-media2md creator sync <creator> --provider <provider> --force-full
-media2md creator run <creator> --provider <provider>
+media2md creator add https://www.youtube.com/@creator-name --provider youtube
+media2md creator status --provider youtube --creator @creator-name
+media2md creator sync @creator-name --provider youtube --force-full
+media2md creator run @creator-name --provider youtube
 ```
 
 Policy examples:
@@ -126,6 +126,7 @@ Notes:
 - Per-type batch limits are supported.
 - Long YouTube videos are best treated as `youtube_long=1` when you want one long-form item per batch.
 - `creator run` also supports `--retry-failed`, `--allow-stale-catalog`, date filters, rank filters, and ordering.
+- Creator inputs can be full URLs or bare handles. Bare handles such as `@creator-name` or `creator-name` require `--provider`.
 
 ## `media2md settings`
 

@@ -3,13 +3,13 @@ import json, os, subprocess, sys, threading, zipfile
 from media2md.bootstrap import ensure_runtime, runtime_root, state_root
 from media2md import __version__
 
-def test_version(): assert __version__=='0.9.1'
+def test_version(): assert __version__=='0.9.2'
 def test_clean_runtime(monkeypatch,tmp_path):
  monkeypatch.setenv('HOME',str(tmp_path)); root=ensure_runtime(force=True)
  assert (root/'scripts/media2md.py').is_file(); assert (root/'scripts/manage_creators.py').is_file(); assert (root/'scripts/manage_videos.py').is_file(); assert (root/'bin/media2md').is_file()
  assert (root/'config').is_symlink(); assert (root/'data').is_symlink()
  result=subprocess.run([sys.executable,str(root/'scripts/media2md.py'),'version'],cwd=root,capture_output=True,text=True)
- assert result.returncode==0 and '0.9.1' in result.stdout
+ assert result.returncode==0 and '0.9.2' in result.stdout
 
 def test_concurrent_runtime_bootstrap(monkeypatch,tmp_path):
  monkeypatch.setenv('HOME',str(tmp_path))
@@ -65,3 +65,8 @@ def test_all_platform_auth_contract():
  text=(Path(__file__).parents[1]/'src/media2md/bundle/scripts/media2md_auth.py').read_text()
  for p in ('instagram','youtube','tiktok'): assert p in text
  assert 'automatic_password_login=false' in text
+
+def test_build_excludes_local_virtualenvs():
+ text=(Path(__file__).parents[1]/'pyproject.toml').read_text()
+ for token in ('".venv*/**"','"venv*/**"','".audit-venv/**"'):
+  assert token in text

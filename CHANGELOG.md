@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.2 - 2026-06-29
+
+- Update the public README and CLI reference so installation, authentication, and creator workflows match the published PyPI package and current CLI behavior.
+- Clarify that Media2MD is designed for both direct terminal use and agent-driven automation workflows, including OpenClaw-aligned scheduling and machine-readable status surfaces.
+- Require `--provider` for bare creator handles such as `@creator-name` or `creator-name`, while still auto-detecting the provider from full creator URLs.
+- Remove the ambiguous default-to-Instagram behavior from public creator commands and add regression coverage for provider resolution.
+
 ## 0.9.1 - 2026-06-25
 
 - Treat HTTP 200 on TikTok's authenticated `/setting` endpoint as authenticated even when generic captcha strings appear in application JavaScript.
