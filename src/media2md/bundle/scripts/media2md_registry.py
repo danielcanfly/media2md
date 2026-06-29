@@ -2803,15 +2803,33 @@ def _latest_markdown_path(provider: str, external_id: str) -> str | None:
 
 def _render_stage_progress(*, provider: str, creator: str, media_id: str, batch_number: int,
                            batch_count: int, current: int, total: int, stage: str, elapsed: float) -> None:
-    bar_width = 24
-    complete = max(0, min(bar_width, int((current / max(1, total)) * bar_width)))
+    stage_map = {
+        "pending": ("queued", 0.05),
+        "downloading": ("download", 0.28),
+        "downloaded": ("download", 0.42),
+        "transcribing": ("transcribe", 0.68),
+        "transcribed": ("transcribe", 0.78),
+        "rendering": ("render", 0.88),
+        "validating": ("validate", 0.94),
+        "cleaning": ("cleanup", 0.98),
+        "completed": ("done", 1.0),
+        "failed": ("failed", 1.0),
+        "starting": ("starting", 0.02),
+    }
+    stage_label, stage_fraction = stage_map.get(stage, (stage, 0.12))
+    bar_width = 32
+    percent = max(0.0, min(1.0, stage_fraction))
+    complete = max(0, min(bar_width, int(round(percent * bar_width))))
     bar = "━" * complete + " " * (bar_width - complete)
+    percent_text = f"{int(round(percent * 100)):>3}%"
     elapsed_text = _format_eta(elapsed)
+    short_id = media_id[:14]
     line = (
-        f"\r[{bar}] batch {batch_number}/{batch_count} item {current}/{total} "
-        f"stage={stage:<12} elapsed={elapsed_text} provider={provider} creator={creator} media_id={media_id}"
+        f"\r{stage_label:<10} [{bar}] {percent_text} "
+        f"item {current}/{total} batch {batch_number}/{batch_count} "
+        f"elapsed {elapsed_text} id {short_id}"
     )
-    print(line, end="", flush=True)
+    print(line[:160], end="", flush=True)
 
 
 def _runtime_limit_error(text: str) -> bool:
