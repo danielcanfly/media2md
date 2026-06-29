@@ -840,6 +840,9 @@ def uninstall(args: argparse.Namespace) -> int:
 
 
 def repair_active_states(args: argparse.Namespace) -> int:
+    repair_active_states_common_service = optional_attr("public_cli_maintenance_service", "repair_active_states_common")
+    if repair_active_states_common_service is not None:
+        return repair_active_states_common_service(args, root=ROOT, iso_now=iso_now, registry=registry)
     if not args.yes:
         raise RuntimeError("Use --yes to requeue abandoned active states.")
     active=("downloading","downloaded","transcribing","transcribed","rendering","validating","cleaning")
@@ -856,6 +859,9 @@ def repair_active_states(args: argparse.Namespace) -> int:
 
 
 def repair_workspace(args: argparse.Namespace) -> int:
+    repair_workspace_common_service = optional_attr("public_cli_maintenance_service", "repair_workspace_common")
+    if repair_workspace_common_service is not None:
+        return repair_workspace_common_service(args, root=ROOT)
     if not args.yes:
         raise RuntimeError("Use --yes to remove stale intermediate workspace files.")
     active = ("downloading", "downloaded", "transcribing", "transcribed", "rendering", "validating", "cleaning")
