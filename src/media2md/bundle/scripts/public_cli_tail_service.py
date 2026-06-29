@@ -11,6 +11,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
+from media2md.remediation_service import uninstall_dry_run_next_step
 
 
 def scheduler_tick_common(
@@ -229,7 +230,7 @@ def uninstall_common(
     print("package_command=python -m pip uninstall -y media2md social2md")
     if getattr(args, "dry_run", False):
         print("package_uninstalled=false")
-        print("next_step=run `media2md uninstall` to remove the installed Python package")
+        print(f"next_step={uninstall_dry_run_next_step()}")
         return 0
     print("package_uninstalled=true")
     return run([sys.executable, "-m", "pip", "uninstall", "-y", "media2md", "social2md"])

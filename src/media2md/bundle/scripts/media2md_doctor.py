@@ -14,6 +14,7 @@ from typing import Any
 
 from media2md.cli_output_service import make_output_model, make_section
 from media2md.health_taxonomy import health_category, normalize_health_status, summarize_health
+from media2md.remediation_service import media2md_install_guidance
 from media2md.results import HealthResult
 from media2md.probe import probe_command
 from media2md_paths import command_path
@@ -130,7 +131,7 @@ def impersonation_payload() -> dict[str, Any]:
         "event": "impersonation_doctor", "ready": bool(inventory["ready"]),
         "curl_cffi_version": inventory["curl_cffi_version"], "targets": inventory["targets"],
         "preferred_target": inventory["preferred_target"],
-        "remediation": [] if inventory["ready"] else ["Install with: python -m pip install -U '.[impersonation]'"],
+        "remediation": [] if inventory["ready"] else [media2md_install_guidance("youtube", "tiktok")],
     }
     _attach_health(
         payload,

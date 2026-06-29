@@ -15,6 +15,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from media2md.remediation_service import media2md_install_guidance, youtube_profile_guidance
 
 from media2md_paths import command_path
 
@@ -294,11 +295,7 @@ def verify_youtube_session(video_id: str | None = None, *, persist: bool = False
     }
     if not payload["profile_configured"]:
         payload["required_action"] = "connect_youtube_browser_profile"
-        payload["guidance"] = [
-            "Run: ./bin/media2md auth profiles youtube --browser <BROWSER>",
-            "Run: ./bin/media2md auth connect youtube --browser <BROWSER> --profile <PROFILE>",
-            "Then run: ./bin/media2md auth verify youtube",
-        ]
+        payload["guidance"] = youtube_profile_guidance(action="connect")
         return payload
     try:
         row = validate_profile(browser, profile)
@@ -307,7 +304,7 @@ def verify_youtube_session(video_id: str | None = None, *, persist: bool = False
         payload["auth_state"] = "profile_missing"
         payload["error"] = str(exc)
         payload["required_action"] = "select_existing_browser_profile"
-        payload["guidance"] = ["List profiles again and reconnect an existing profile."]
+        payload["guidance"] = youtube_profile_guidance(action="reconnect")
         if persist:
             _persist_verification(payload)
         return payload
@@ -316,7 +313,7 @@ def verify_youtube_session(video_id: str | None = None, *, persist: bool = False
         payload["auth_state"] = "dependency_missing"
         payload["error"] = "yt-dlp is not installed"
         payload["required_action"] = "install_youtube_extra"
-        payload["guidance"] = ["Run: python -m pip install -U '.[youtube]'"]
+        payload["guidance"] = [media2md_install_guidance("youtube")]
         if persist:
             _persist_verification(payload)
         return payload
@@ -348,27 +345,29 @@ def verify_youtube_session(video_id: str | None = None, *, persist: bool = False
             payload["auth_state"] = "cookie_store_locked" if any(token in error_text.lower() for token in ("keychain", "decrypt", "database is locked", "permission")) else "cookie_missing"
             payload["error"] = error_text
             payload["required_action"] = "close_browser_and_check_profile_cookie_access"
-            payload["guidance"] = [
-                f"Confirm YouTube is signed in inside Chrome profile '{selected.get('profile_display_name') or profile}'.",
-                "Close Chrome if macOS blocks cookie database access.",
-                "Run: ./bin/media2md auth verify youtube",
-            ]
+            payload["guidance"] = youtube_profile_guidance(
+                browser=browser or "Chrome",
+                profile=selected.get("profile_display_name") or profile,
+                action="close_browser",
+            )
         elif not auth_records:
             payload["auth_state"] = "cookie_missing"
             payload["error"] = "No Google/YouTube authentication cookies were found in the selected profile."
             payload["required_action"] = "login_to_youtube_in_selected_profile"
-            payload["guidance"] = [
-                f"Open Chrome profile '{selected.get('profile_display_name') or profile}' and sign in to YouTube.",
-                "Then run: ./bin/media2md auth verify youtube",
-            ]
+            payload["guidance"] = youtube_profile_guidance(
+                browser=browser or "Chrome",
+                profile=selected.get("profile_display_name") or profile,
+                action="login",
+            )
         elif not active:
             payload["auth_state"] = "cookie_expired"
             payload["error"] = "The selected profile contains YouTube authentication cookies, but all detected auth cookies are expired."
             payload["required_action"] = "reauthenticate_youtube_in_selected_profile"
-            payload["guidance"] = [
-                f"Open Chrome profile '{selected.get('profile_display_name') or profile}' and sign in to YouTube again.",
-                "Then run: ./bin/media2md auth verify youtube",
-            ]
+            payload["guidance"] = youtube_profile_guidance(
+                browser=browser or "Chrome",
+                profile=selected.get("profile_display_name") or profile,
+                action="refresh_login",
+            )
         else:
             account = _youtube_account_probe(cookie_path)
             payload["server_auth_probe"] = account["state"]
@@ -381,19 +380,20 @@ def verify_youtube_session(video_id: str | None = None, *, persist: bool = False
                 payload["auth_state"] = "server_rejected"
                 payload["error"] = account.get("error")
                 payload["required_action"] = "reauthenticate_youtube_in_selected_profile"
-                payload["guidance"] = [
-                    f"Open Chrome profile '{selected.get('profile_display_name') or profile}' and refresh the YouTube login.",
-                    "Then run: ./bin/media2md auth verify youtube",
-                ]
+                payload["guidance"] = youtube_profile_guidance(
+                    browser=browser or "Chrome",
+                    profile=selected.get("profile_display_name") or profile,
+                    action="refresh_login",
+                )
             else:
                 payload["auth_state"] = "configured_unverified"
                 payload["error"] = account.get("error")
                 payload["required_action"] = "verify_youtube_session_after_opening_youtube"
-                payload["guidance"] = [
-                    f"Open youtube.com in Chrome profile '{selected.get('profile_display_name') or profile}' and confirm the avatar is signed in.",
-                    "Run: ./bin/media2md auth verify youtube",
-                    "Do not let an agent repeatedly retry authenticated downloads until authenticated=true.",
-                ]
+                payload["guidance"] = youtube_profile_guidance(
+                    browser=browser or "Chrome",
+                    profile=selected.get("profile_display_name") or profile,
+                    action="open_youtube",
+                )
 
         if result.returncode != 0 and not payload["error"]:
             payload["error"] = (result.stderr or result.stdout or "YouTube metadata verification failed")[-4000:]
@@ -401,7 +401,7 @@ def verify_youtube_session(video_id: str | None = None, *, persist: bool = False
             payload["authenticated"] = False
             payload["auth_state"] = "youtube_challenge"
             payload["required_action"] = "inspect_youtube_access_error"
-            payload["guidance"] = ["Run: ./bin/media2md doctor youtube-access --video-id=<VIDEO_ID>"]
+            payload["guidance"] = youtube_profile_guidance(action="doctor")
     if persist:
         _persist_verification(payload)
     return payload

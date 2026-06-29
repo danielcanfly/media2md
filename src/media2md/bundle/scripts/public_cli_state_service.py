@@ -8,6 +8,7 @@ from typing import Any, Callable
 from media2md.cli_output_service import make_output_model, make_section
 from media2md.health_taxonomy import health_category, summarize_health
 from media2md.provider_registry import provider_adapter
+from media2md.remediation_service import auth_status_command
 
 
 def registry_rows(registry_db: Path, *, include_youtube_totals: bool) -> list[dict[str, Any]]:
@@ -203,7 +204,7 @@ def print_system_status(payload: dict[str, Any]) -> None:
         print(f"provider_health_category={provider_health.get('category')}")
     print(f"primary_markdown_root={payload['project_root']}/markdown")
     print(f"primary_workspace_root={payload['project_root']}/workspace")
-    print("tip=Run `media2md auth status --output ndjson` for machine-readable auth details.")
+    print(f"tip=Run `{auth_status_command(output='ndjson')}` for machine-readable auth details.")
     print("\nPROVIDER   CONFIGURED  HEALTH    CATEGORY         BACKEND      MODE              BROWSER   PROFILE")
     for item in payload["providers"]:
         print(

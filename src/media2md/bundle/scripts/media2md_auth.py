@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 from media2md.cli_output_service import make_output_model, make_section
 from media2md.health_taxonomy import health_category
+from media2md.remediation_service import auth_verify_command, provider_profile_guidance
 from media2md_youtube_session import profile_inventory, validate_profile, verify_youtube_session, load_auth_profiles, save_auth_profiles
 from media2md_auth_shared import export_profile_snapshot, load_cookie_jar, cookie_stats, refresh_if_configured
 
@@ -115,18 +116,18 @@ def verify_web(provider,persist=True):
   jar=load_cookie_jar(cookie); payload['cookie_extraction_ready']=True; payload.update(cookie_stats(provider,jar))
   if not payload['auth_cookie_present']:
    state='cookie_expired' if payload.get('expired_auth_cookie_names') else 'cookie_missing'
-   payload.update(auth_state=state,required_action=f'reauthenticate_{provider}_in_selected_profile',guidance=[f'Open {p.get("profile_display_name") or p.get("profile")} in {p.get("browser")}.',f'Log in to {provider} manually.',f'Run: media2md auth verify {provider}']); return payload
+   payload.update(auth_state=state,required_action=f'reauthenticate_{provider}_in_selected_profile',guidance=provider_profile_guidance(provider,browser=p.get("browser"),profile=p.get("profile_display_name") or p.get("profile"),action='login')); return payload
   state,status,final,error=_probe(provider,jar); payload.update(server_auth_probe=state,server_auth_status=status,server_final_url=final,error=error)
   if state=='authenticated': payload.update(authenticated=True,auth_state='authenticated')
-  elif state=='platform_challenge': payload.update(auth_state='platform_challenge',required_action=f'complete_{provider}_challenge_in_selected_profile',guidance=[f'Open the selected browser profile and complete the {provider} verification challenge.',f'Run: media2md auth verify {provider}'])
-  elif state=='server_rejected': payload.update(auth_state='server_rejected',required_action=f'reauthenticate_{provider}_in_selected_profile',guidance=[f'Log in to {provider} in the selected browser profile.',f'Run: media2md auth verify {provider}'])
+  elif state=='platform_challenge': payload.update(auth_state='platform_challenge',required_action=f'complete_{provider}_challenge_in_selected_profile',guidance=provider_profile_guidance(provider,browser=p.get("browser"),profile=p.get("profile_display_name") or p.get("profile"),action='challenge'))
+  elif state=='server_rejected': payload.update(auth_state='server_rejected',required_action=f'reauthenticate_{provider}_in_selected_profile',guidance=provider_profile_guidance(provider,browser=p.get("browser"),profile=p.get("profile_display_name") or p.get("profile"),action='refresh_login'))
   elif state=='probe_error' and _transient_probe_error(provider,error) and payload.get('auth_cookie_present'):
    payload.update(
     auth_state='configured_unverified',
     required_action=None,
     retryable=True,
     warning='Browser auth cookies are present, but the live server probe failed with a transient transport error.',
-    guidance=[f'Retry: media2md auth verify {provider}',f'If normal commands work, treat this as a probe-only failure and continue.'],
+    guidance=[f'Retry: {auth_verify_command(provider)}',f'If normal commands work, treat this as a probe-only failure and continue.'],
    )
   else: payload.update(auth_state='configured_unverified',required_action=f'inspect_{provider}_access_error')
  except Exception as exc:
