@@ -229,6 +229,18 @@ media2md data backup --destination <backup-dir>
 media2md data verify-backup <backup-zip-path>
 ```
 
+## `media2md uninstall`
+
+`media2md uninstall` removes the installed Python package by default.
+
+Use:
+
+```bash
+media2md uninstall
+media2md uninstall --dry-run
+media2md uninstall --purge-data --yes --confirm DELETE-ALL-DATA
+```
+
 ## `media2md openclaw`
 
 `media2md openclaw ...` delegates to the OpenClaw-oriented integration surface bundled with the runtime.

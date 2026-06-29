@@ -553,11 +553,12 @@ def uninstall(args: argparse.Namespace) -> int:
     print(f"openclaw_skills_removed={','.join(removed_skills) or '-'}")
     print(f"data_purged={str(args.purge_data).lower()}")
     print("package_command=python -m pip uninstall -y media2md social2md")
-    print("package_uninstalled=false")
-    print("next_step=run `media2md uninstall --execute-pip` to remove the installed Python package")
-    if args.execute_pip or getattr(args, "apply", False):
-        return run([sys.executable, "-m", "pip", "uninstall", "-y", "media2md", "social2md"])
-    return 0
+    if getattr(args, "dry_run", False):
+        print("package_uninstalled=false")
+        print("next_step=run `media2md uninstall` to remove the installed Python package")
+        return 0
+    print("package_uninstalled=true")
+    return run([sys.executable, "-m", "pip", "uninstall", "-y", "media2md", "social2md"])
 
 
 
@@ -688,7 +689,7 @@ def parser() -> argparse.ArgumentParser:
     backup=ds.add_parser("backup"); backup.add_argument("--destination"); backup.add_argument("--force",action="store_true"); backup.add_argument("--wait-seconds",type=float,default=0); backup.add_argument("--output",choices=("human","ndjson"),default="human"); backup.set_defaults(func=lambda a:run([sys.executable,str(BACKUP),"backup"]+(["--destination",a.destination] if a.destination else [])+(["--force"] if a.force else [])+["--wait-seconds",str(a.wait_seconds),"--output",a.output]))
     verify=ds.add_parser("verify-backup"); verify.add_argument("path"); verify.add_argument("--output",choices=("human","ndjson"),default="human"); verify.set_defaults(func=lambda a:run([sys.executable,str(BACKUP),"verify-backup",a.path,"--output",a.output]))
     deleteall=ds.add_parser("delete-all"); deleteall.add_argument("--yes",action="store_true"); deleteall.add_argument("--confirm"); deleteall.set_defaults(func=data_delete_all)
-    uninstallp=sub.add_parser("uninstall"); uninstallp.add_argument("--purge-data",action="store_true"); uninstallp.add_argument("--yes",action="store_true"); uninstallp.add_argument("--confirm"); uninstallp.add_argument("--execute-pip",action="store_true"); uninstallp.add_argument("--apply",action="store_true"); uninstallp.set_defaults(func=uninstall)
+    uninstallp=sub.add_parser("uninstall"); uninstallp.add_argument("--purge-data",action="store_true"); uninstallp.add_argument("--yes",action="store_true"); uninstallp.add_argument("--confirm"); uninstallp.add_argument("--dry-run",action="store_true"); uninstallp.set_defaults(func=uninstall)
     return p
 
 
