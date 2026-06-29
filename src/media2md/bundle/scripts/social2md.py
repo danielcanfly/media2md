@@ -14,8 +14,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from media2md_urls import detect_provider as detect_provider_url, normalize_creator as normalize_creator_target
 from creator_run_shared import prepare_catalog_for_creator_run
+from media2md_urls import detect_provider as detect_provider_url, normalize_creator as normalize_creator_target
 
 ROOT = Path(__file__).resolve().parents[1]
 CORE = ROOT / "scripts" / "social2md_core.py"
@@ -88,11 +88,41 @@ def generic(args: list[str]) -> int:
 
 
 def detect_provider(value: str) -> str | None:
+    try:
+        from creator_resolution_service import detect_provider as detect_provider_service
+    except ModuleNotFoundError:
+        detect_provider_service = None
+    if detect_provider_service is not None:
+        return detect_provider_service(value)
     return detect_provider_url(value)
 
 
 def normalize_creator(provider: str, value: str) -> str:
+    try:
+        from creator_resolution_service import normalize_creator_handle as normalize_creator_handle_service
+    except ModuleNotFoundError:
+        normalize_creator_handle_service = None
+    if normalize_creator_handle_service is not None:
+        return normalize_creator_handle_service(provider, value)
     return str(normalize_creator_target(provider, value).creator)
+
+
+def resolve_creator_provider(value: str, provider: str | None, *, command_name: str) -> str:
+    try:
+        from creator_resolution_service import resolve_provider_for_creator as resolve_provider_for_creator_service
+    except ModuleNotFoundError:
+        resolve_provider_for_creator_service = None
+    if resolve_provider_for_creator_service is not None:
+        return resolve_provider_for_creator_service(value, provider, command_name=command_name)
+    if provider:
+        return provider
+    detected = detect_provider(value)
+    if detected:
+        return detected
+    raise RuntimeError(
+        f"{command_name} requires --provider when <creator> is a bare handle. "
+        "Use a full creator URL or pass --provider instagram|youtube|tiktok."
+    )
 
 
 def update_tool(args: list[str], capture: bool = False) -> int | subprocess.CompletedProcess[str]:
@@ -127,6 +157,12 @@ def merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
 
 
 def effective_policy(provider: str, creator: str) -> dict[str, Any]:
+    try:
+        from creator_policy_service import effective_policy as effective_policy_service
+    except ModuleNotFoundError:
+        effective_policy_service = None
+    if effective_policy_service is not None:
+        return effective_policy_service(load_json, CONFIG, POLICIES, provider, creator)
     return merge(policy_defaults(), load_policies()["creators"].get(f"{provider}:{creator}", {}))
 
 
@@ -144,6 +180,19 @@ def duration(minutes: int) -> str:
 
 
 def set_policy(args: argparse.Namespace, sync_enabled: bool | None = None) -> int:
+    try:
+        from creator_policy_service import set_policy as set_policy_service
+    except ModuleNotFoundError:
+        set_policy_service = None
+    if set_policy_service is not None:
+        return set_policy_service(
+            args,
+            load_json=load_json,
+            atomic_json=atomic_json,
+            config_path=CONFIG,
+            policies_path=POLICIES,
+            sync_enabled=sync_enabled,
+        )
     provider = args.provider
     creator = normalize_creator(provider, args.creator)
     data = load_policies(); entry = data["creators"].setdefault(f"{provider}:{creator}", {})
