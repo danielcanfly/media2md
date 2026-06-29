@@ -888,21 +888,44 @@ def maybe_check_update(args: argparse.Namespace) -> None:
 def parser() -> argparse.ArgumentParser:
     p=argparse.ArgumentParser(prog="media2md")
     sub=p.add_subparsers(dest="command",required=True)
-    ver=sub.add_parser("version"); ver.set_defaults(func=lambda a:(print(f"media2md {VERSION}") or 0))
-    status=sub.add_parser("status"); status.add_argument("--output",choices=("human","ndjson"),default="human"); status.set_defaults(func=system_status)
-    settingsp=sub.add_parser("settings"); setsub=settingsp.add_subparsers(dest="settings_command",required=True)
-    show=setsub.add_parser("show"); show.add_argument("--output",choices=("human","ndjson"),default="human"); show.set_defaults(func=settings_show)
-    setcmd=setsub.add_parser("set"); setcmd.add_argument("--instagram-backend",choices=("auto","gallery-dl","instaloader")); setcmd.add_argument("--youtube-js-runtime",choices=("auto","deno","node","quickjs")); setcmd.add_argument("--youtube-allow-remote-ejs",action=argparse.BooleanOptionalAction); setcmd.add_argument("--youtube-po-token-provider",choices=("disabled","none","bgutil","wpc-experimental")); setcmd.add_argument("--youtube-pot-browser-path"); setcmd.add_argument("--youtube-caption-first",action=argparse.BooleanOptionalAction); setcmd.add_argument("--youtube-caption-languages"); setcmd.add_argument("--youtube-audio-strategies"); setcmd.add_argument("--youtube-long-video-threshold-minutes",type=float); setcmd.add_argument("--youtube-chunk-minutes",type=float); setcmd.add_argument("--youtube-chunk-model"); setcmd.add_argument("--tiktok-impersonate"); setcmd.add_argument("--update-check-every-days",type=float); setcmd.add_argument("--update-check-on-use",action=argparse.BooleanOptionalAction); setcmd.add_argument("--output",choices=("human","ndjson"),default="human"); setcmd.set_defaults(func=settings_set)
-    agentp=sub.add_parser("agent"); agentsub=agentp.add_subparsers(dest="agent_command",required=True); ast=agentsub.add_parser("status"); ast.add_argument("--output",choices=("human","ndjson"),default="human"); ast.set_defaults(func=agent_status)
-    init=sub.add_parser("init")
-    init.add_argument("--language", "--ui-locale", dest="language", choices=LOCALES)
-    init.add_argument("--markdown-language", "--markdown-locale", dest="markdown_language", choices=LOCALES)
-    init.add_argument("--timezone")
-    init.add_argument("--non-interactive", action="store_true")
-    init.set_defaults(func=init_command)
-    providers=sub.add_parser("providers"); providers.add_argument("args",nargs=argparse.REMAINDER); providers.set_defaults(func=lambda a:core(["providers",*a.args]))
-    authp=sub.add_parser("auth"); authp.add_argument("args",nargs=argparse.REMAINDER); authp.set_defaults(func=lambda a:auth(a.args))
-    media=sub.add_parser("media"); media.add_argument("args",nargs=argparse.REMAINDER); media.set_defaults(func=lambda a:generic(a.args))
+    add_common_top_level_commands_service, add_common_update_commands_service, add_common_repair_commands_service, add_common_data_commands_service, add_common_uninstall_command_service = optional_attrs(
+        "public_cli_parser_service",
+        "add_common_top_level_commands",
+        "add_common_update_commands",
+        "add_common_repair_commands",
+        "add_common_data_commands",
+        "add_common_uninstall_command",
+    )
+    if add_common_top_level_commands_service is not None:
+        add_common_top_level_commands_service(
+            sub,
+            version=VERSION,
+            system_status=system_status,
+            settings_show=settings_show,
+            settings_set=settings_set,
+            agent_status=agent_status,
+            init_command=init_command,
+            locales=LOCALES,
+            core=core,
+            auth=auth,
+            generic=generic,
+        )
+    else:
+        ver=sub.add_parser("version"); ver.set_defaults(func=lambda a:(print(f"media2md {VERSION}") or 0))
+        status=sub.add_parser("status"); status.add_argument("--output",choices=("human","ndjson"),default="human"); status.set_defaults(func=system_status)
+        settingsp=sub.add_parser("settings"); setsub=settingsp.add_subparsers(dest="settings_command",required=True)
+        show=setsub.add_parser("show"); show.add_argument("--output",choices=("human","ndjson"),default="human"); show.set_defaults(func=settings_show)
+        setcmd=setsub.add_parser("set"); setcmd.add_argument("--instagram-backend",choices=("auto","gallery-dl","instaloader")); setcmd.add_argument("--youtube-js-runtime",choices=("auto","deno","node","quickjs")); setcmd.add_argument("--youtube-allow-remote-ejs",action=argparse.BooleanOptionalAction); setcmd.add_argument("--youtube-po-token-provider",choices=("disabled","none","bgutil","wpc-experimental")); setcmd.add_argument("--youtube-pot-browser-path"); setcmd.add_argument("--youtube-caption-first",action=argparse.BooleanOptionalAction); setcmd.add_argument("--youtube-caption-languages"); setcmd.add_argument("--youtube-audio-strategies"); setcmd.add_argument("--youtube-long-video-threshold-minutes",type=float); setcmd.add_argument("--youtube-chunk-minutes",type=float); setcmd.add_argument("--youtube-chunk-model"); setcmd.add_argument("--tiktok-impersonate"); setcmd.add_argument("--update-check-every-days",type=float); setcmd.add_argument("--update-check-on-use",action=argparse.BooleanOptionalAction); setcmd.add_argument("--output",choices=("human","ndjson"),default="human"); setcmd.set_defaults(func=settings_set)
+        agentp=sub.add_parser("agent"); agentsub=agentp.add_subparsers(dest="agent_command",required=True); ast=agentsub.add_parser("status"); ast.add_argument("--output",choices=("human","ndjson"),default="human"); ast.set_defaults(func=agent_status)
+        init=sub.add_parser("init")
+        init.add_argument("--language", "--ui-locale", dest="language", choices=LOCALES)
+        init.add_argument("--markdown-language", "--markdown-locale", dest="markdown_language", choices=LOCALES)
+        init.add_argument("--timezone")
+        init.add_argument("--non-interactive", action="store_true")
+        init.set_defaults(func=init_command)
+        providers=sub.add_parser("providers"); providers.add_argument("args",nargs=argparse.REMAINDER); providers.set_defaults(func=lambda a:core(["providers",*a.args]))
+        authp=sub.add_parser("auth"); authp.add_argument("args",nargs=argparse.REMAINDER); authp.set_defaults(func=lambda a:auth(a.args))
+        media=sub.add_parser("media"); media.add_argument("args",nargs=argparse.REMAINDER); media.set_defaults(func=lambda a:generic(a.args))
     creator=sub.add_parser("creator"); cs=creator.add_subparsers(dest="creator_command",required=True)
     add=cs.add_parser("add"); add.add_argument("creator"); add.add_argument("--provider",choices=PROVIDERS,default="instagram"); add.set_defaults(func=add_creator)
     stat=cs.add_parser("status"); stat.add_argument("--provider",choices=PROVIDERS); stat.add_argument("--creator"); stat.add_argument("--output",choices=("human","ndjson"),default="human"); stat.set_defaults(func=creator_status)
@@ -918,23 +941,38 @@ def parser() -> argparse.ArgumentParser:
     runp=cs.add_parser("run"); runp.add_argument("creator"); runp.add_argument("--provider",choices=PROVIDERS); runp.add_argument("--mode",choices=("batch","drain")); runp.add_argument("--batch-size",type=int); runp.add_argument("--max-batches",type=int); runp.add_argument("--max-runtime-minutes",type=int); runp.add_argument("--max-failures",type=int); runp.add_argument("--stop-on-failure",action="store_true"); runp.add_argument("--sleep-between-batches",type=int); runp.add_argument("--since"); runp.add_argument("--until"); runp.add_argument("--rank-from",type=int); runp.add_argument("--rank-to",type=int); runp.add_argument("--order",choices=("newest_first","oldest_first")); runp.add_argument("--allow-stale-catalog",action="store_true",help="Continue with the last saved catalog when sync fails. This is an explicit authorization."); runp.add_argument("--output",choices=("human","ndjson"),default="human"); runp.set_defaults(func=creator_run)
     delete=cs.add_parser("delete"); delete.add_argument("creator"); delete.add_argument("--provider",choices=PROVIDERS,required=True); delete.add_argument("--yes",action="store_true"); delete.set_defaults(func=lambda a:registry(["delete-creator",a.provider,a.creator]+(["--yes"] if a.yes else [])))
     scheduler=sub.add_parser("scheduler"); ss=scheduler.add_subparsers(dest="scheduler_command",required=True); tick=ss.add_parser("tick"); tick.add_argument("--output",choices=("human","ndjson"),default="human"); tick.add_argument("--non-interactive",action="store_true"); tick.set_defaults(func=scheduler_tick)
-    update=sub.add_parser("update"); us=update.add_subparsers(dest="update_command",required=True)
-    for name in ("status","check","download","install","rollback"):
-        commandp=us.add_parser(name); commandp.add_argument("--output",choices=("human","ndjson"),default="human")
-        if name=="check": commandp.add_argument("--repository")
-        if name in {"install","rollback"}: commandp.add_argument("--yes",action="store_true")
-        if name=="install": commandp.add_argument("--non-interactive",action="store_true")
-        commandp.set_defaults(func=lambda a,n=name:update_tool([n]+((["--repository",a.repository] if n=="check" and a.repository else []))+((["--yes"] if n in {"install","rollback"} and a.yes else []))+((["--non-interactive"] if n=="install" and a.non_interactive else []))+["--output",a.output]))
+    update=sub.add_parser("update")
+    if add_common_update_commands_service is not None:
+        add_common_update_commands_service(update, update_tool=update_tool)
+    else:
+        us=update.add_subparsers(dest="update_command",required=True)
+        for name in ("status","check","download","install","rollback"):
+            commandp=us.add_parser(name); commandp.add_argument("--output",choices=("human","ndjson"),default="human")
+            if name=="check": commandp.add_argument("--repository")
+            if name in {"install","rollback"}: commandp.add_argument("--yes",action="store_true")
+            if name=="install": commandp.add_argument("--non-interactive",action="store_true")
+            commandp.set_defaults(func=lambda a,n=name:update_tool([n]+((["--repository",a.repository] if n=="check" and a.repository else []))+((["--yes"] if n in {"install","rollback"} and a.yes else []))+((["--non-interactive"] if n=="install" and a.non_interactive else []))+["--output",a.output]))
     doctor=sub.add_parser("doctor"); doctor.add_argument("args",nargs=argparse.REMAINDER); doctor.set_defaults(func=lambda a:run([sys.executable,str(DOCTOR),*a.args]))
     openclaw=sub.add_parser("openclaw"); openclaw.add_argument("args",nargs=argparse.REMAINDER); openclaw.set_defaults(func=lambda a:core(["openclaw",*a.args]))
-    repair=sub.add_parser("repair"); rs=repair.add_subparsers(dest="repair_command",required=True); active=rs.add_parser("active-states"); active.add_argument("--yes",action="store_true"); active.set_defaults(func=repair_active_states)
-    identity=rs.add_parser("identities"); identity.add_argument("--offline",action="store_true"); identity.set_defaults(func=lambda a:registry(["repair-identities"]+(["--offline"] if a.offline else [])))
-    workspace=rs.add_parser("workspace"); workspace.add_argument("--yes",action="store_true"); workspace.set_defaults(func=repair_workspace)
-    data=sub.add_parser("data"); ds=data.add_subparsers(dest="data_command",required=True)
-    backup=ds.add_parser("backup"); backup.add_argument("--destination"); backup.add_argument("--force",action="store_true"); backup.add_argument("--wait-seconds",type=float,default=0); backup.add_argument("--output",choices=("human","ndjson"),default="human"); backup.set_defaults(func=lambda a:run([sys.executable,str(BACKUP),"backup"]+(["--destination",a.destination] if a.destination else [])+(["--force"] if a.force else [])+["--wait-seconds",str(a.wait_seconds),"--output",a.output]))
-    verify=ds.add_parser("verify-backup"); verify.add_argument("path"); verify.add_argument("--output",choices=("human","ndjson"),default="human"); verify.set_defaults(func=lambda a:run([sys.executable,str(BACKUP),"verify-backup",a.path,"--output",a.output]))
-    deleteall=ds.add_parser("delete-all"); deleteall.add_argument("--yes",action="store_true"); deleteall.add_argument("--confirm"); deleteall.set_defaults(func=data_delete_all)
-    uninstallp=sub.add_parser("uninstall"); uninstallp.add_argument("--purge-data",action="store_true"); uninstallp.add_argument("--yes",action="store_true"); uninstallp.add_argument("--confirm"); uninstallp.add_argument("--dry-run",action="store_true"); uninstallp.set_defaults(func=uninstall)
+    repair=sub.add_parser("repair")
+    if add_common_repair_commands_service is not None:
+        add_common_repair_commands_service(repair, registry=registry, repair_active_states=repair_active_states, repair_workspace=repair_workspace)
+    else:
+        rs=repair.add_subparsers(dest="repair_command",required=True); active=rs.add_parser("active-states"); active.add_argument("--yes",action="store_true"); active.set_defaults(func=repair_active_states)
+        identity=rs.add_parser("identities"); identity.add_argument("--offline",action="store_true"); identity.set_defaults(func=lambda a:registry(["repair-identities"]+(["--offline"] if a.offline else [])))
+        workspace=rs.add_parser("workspace"); workspace.add_argument("--yes",action="store_true"); workspace.set_defaults(func=repair_workspace)
+    data=sub.add_parser("data")
+    if add_common_data_commands_service is not None:
+        add_common_data_commands_service(data, backup_script=BACKUP, run=run, data_delete_all=data_delete_all)
+    else:
+        ds=data.add_subparsers(dest="data_command",required=True)
+        backup=ds.add_parser("backup"); backup.add_argument("--destination"); backup.add_argument("--force",action="store_true"); backup.add_argument("--wait-seconds",type=float,default=0); backup.add_argument("--output",choices=("human","ndjson"),default="human"); backup.set_defaults(func=lambda a:run([sys.executable,str(BACKUP),"backup"]+(["--destination",a.destination] if a.destination else [])+(["--force"] if a.force else [])+["--wait-seconds",str(a.wait_seconds),"--output",a.output]))
+        verify=ds.add_parser("verify-backup"); verify.add_argument("path"); verify.add_argument("--output",choices=("human","ndjson"),default="human"); verify.set_defaults(func=lambda a:run([sys.executable,str(BACKUP),"verify-backup",a.path,"--output",a.output]))
+        deleteall=ds.add_parser("delete-all"); deleteall.add_argument("--yes",action="store_true"); deleteall.add_argument("--confirm"); deleteall.set_defaults(func=data_delete_all)
+    if add_common_uninstall_command_service is not None:
+        add_common_uninstall_command_service(sub, uninstall=uninstall)
+    else:
+        uninstallp=sub.add_parser("uninstall"); uninstallp.add_argument("--purge-data",action="store_true"); uninstallp.add_argument("--yes",action="store_true"); uninstallp.add_argument("--confirm"); uninstallp.add_argument("--dry-run",action="store_true"); uninstallp.set_defaults(func=uninstall)
     return p
 
 
