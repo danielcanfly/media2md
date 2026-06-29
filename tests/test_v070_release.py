@@ -40,6 +40,24 @@ def test_instagram_server_authenticated(tmp_path, monkeypatch):
     assert payload['auth_state']=='authenticated'
 
 
+def test_instagram_transient_probe_ssl_error_stays_configured_not_reconnect(tmp_path, monkeypatch):
+    import media2md_auth as auth
+    jar=http.cookiejar.MozillaCookieJar(str(tmp_path/'instagram-cookies.txt'))
+    jar.set_cookie(_cookie('sessionid','x',2147483647))
+    jar.set_cookie(_cookie('ds_user_id','123',2147483647))
+    jar.save(ignore_discard=True,ignore_expires=True)
+    state={'schema_version':5,'providers':{'instagram':{'mode':'browser_cookie','cookie_file':str(tmp_path/'instagram-cookies.txt'),'browser':'chrome','profile':'Default'}}}
+    monkeypatch.setattr(auth,'load',lambda: json.loads(json.dumps(state)))
+    monkeypatch.setattr(auth,'save',lambda payload: None)
+    monkeypatch.setattr(auth,'_probe',lambda provider,jar:('probe_error',None,None,'SSL: UNEXPECTED_EOF_WHILE_READING'))
+    payload=auth.verify_web('instagram',persist=False)
+    assert payload['authenticated'] is False
+    assert payload['auth_state']=='configured_unverified'
+    assert payload['required_action'] is None
+    assert payload['retryable'] is True
+    assert 'transient transport error' in payload['warning']
+
+
 def test_safe_extract_rejects_traversal(tmp_path):
     import media2md_update as update
     archive_path=tmp_path/'bad.zip'

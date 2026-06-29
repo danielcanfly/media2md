@@ -15,6 +15,20 @@ def iso_now(): return datetime.now(timezone.utc).isoformat(timespec='seconds')
 def load(): return load_auth_profiles()
 def save(x): save_auth_profiles(x)
 
+def _transient_probe_error(provider, error):
+ text=str(error or '').lower()
+ if provider!='instagram': return False
+ return any(token in text for token in (
+  'unexpected_eof_while_reading',
+  'eof occurred in violation of protocol',
+  'ssl',
+  'tls',
+  'connection reset',
+  'temporarily unavailable',
+  'timed out',
+  'timeout',
+ ))
+
 def emit_human(title,payload):
  print(title)
  for k,v in payload.items():
@@ -104,6 +118,14 @@ def verify_web(provider,persist=True):
   if state=='authenticated': payload.update(authenticated=True,auth_state='authenticated')
   elif state=='platform_challenge': payload.update(auth_state='platform_challenge',required_action=f'complete_{provider}_challenge_in_selected_profile',guidance=[f'Open the selected browser profile and complete the {provider} verification challenge.',f'Run: media2md auth verify {provider}'])
   elif state=='server_rejected': payload.update(auth_state='server_rejected',required_action=f'reauthenticate_{provider}_in_selected_profile',guidance=[f'Log in to {provider} in the selected browser profile.',f'Run: media2md auth verify {provider}'])
+  elif state=='probe_error' and _transient_probe_error(provider,error) and payload.get('auth_cookie_present'):
+   payload.update(
+    auth_state='configured_unverified',
+    required_action=None,
+    retryable=True,
+    warning='Browser auth cookies are present, but the live server probe failed with a transient transport error.',
+    guidance=[f'Retry: media2md auth verify {provider}',f'If normal commands work, treat this as a probe-only failure and continue.'],
+   )
   else: payload.update(auth_state='configured_unverified',required_action=f'inspect_{provider}_access_error')
  except Exception as exc:
   text=str(exc); lower=text.lower(); state='cookie_store_locked' if any(x in lower for x in ('locked','database is locked','permission')) else 'dependency_missing' if 'browser-cookie3' in lower else 'cookie_extraction_failed'
