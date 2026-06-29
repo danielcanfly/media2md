@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from media2md.results import HealthResult
 from media2md.bundle.scripts.public_cli_state_service import (
     agent_status_payload,
     apply_settings_updates,
+    provider_auth_rows,
     settings_payload,
     system_status_payload,
 )
@@ -42,10 +44,57 @@ def test_system_status_payload_builds_provider_rows(tmp_path):
         registry_db=tmp_path / "db.sqlite3",
     )
     assert payload["event"] == "system_status"
+    assert payload["schema"] == "media2md.cli.system_status/v1"
+    assert payload["status"] in {"ok", "warn", "missing", "broken", "timeout", "error"}
+    assert payload["category"] in {"ready", "action_required", "degraded"}
+    assert len(payload["sections"]) == 2
     assert payload["creator_count"] == 2
     assert payload["providers"][0]["configured"] is True
     assert payload["providers"][1]["configured"] is True
     assert payload["providers"][2]["configured"] is False
+    assert payload["providers"][0]["health_status"] in {"ok", "warn", "missing", "broken", "timeout", "error"}
+    assert payload["provider_health"]["status"] in {"ok", "warn", "missing", "broken", "timeout", "error"}
+
+
+def test_provider_auth_rows_include_health_contract(monkeypatch, tmp_path):
+    cookie = tmp_path / "instagram.cookies.txt"
+    cookie.write_text("ok", encoding="utf-8")
+
+    class _Adapter:
+        def __init__(self, name: str, result: HealthResult):
+            self.name = name
+            self._result = result
+
+        def health_check(self) -> HealthResult:
+            return self._result
+
+    adapters = {
+        "instagram": _Adapter("instagram", HealthResult(status="ok", message="ready", provider="instagram", active_backend="gallery-dl", backends=("gallery-dl", "instaloader"))),
+        "youtube": _Adapter("youtube", HealthResult(status="warn", message="missing auth", provider="youtube", active_backend=None, backends=("yt-dlp", "yt-dlp-ejs"))),
+        "tiktok": _Adapter("tiktok", HealthResult(status="broken", message="broken", provider="tiktok", active_backend=None, backends=("yt-dlp",), hints=("reinstall",))),
+    }
+
+    monkeypatch.setattr(
+        "media2md.bundle.scripts.public_cli_state_service.provider_adapter",
+        lambda name: adapters.get(name),
+    )
+
+    rows = provider_auth_rows(
+        {
+            "instagram": {"cookie_file": str(cookie)},
+            "youtube": {"mode": "browser_profile", "browser": "chrome", "profile": "Profile 1"},
+        },
+        ("instagram", "youtube", "tiktok"),
+    )
+    assert rows[0]["configured"] is True
+    assert rows[0]["health_status"] == "ok"
+    assert rows[0]["health_category"] == "ready"
+    assert rows[0]["active_backend"] == "gallery-dl"
+    assert rows[1]["health_status"] == "warn"
+    assert rows[1]["health_category"] == "action_required"
+    assert rows[2]["health_status"] == "broken"
+    assert rows[2]["health_category"] == "degraded"
+    assert rows[2]["hints"] == ["reinstall"]
 
 
 def test_settings_payload_is_minimal_projection():
@@ -60,6 +109,7 @@ def test_settings_payload_is_minimal_projection():
         }
     )
     assert payload["event"] == "settings"
+    assert payload["schema"] == "media2md.cli.settings/v1"
     assert payload["markdown_locale"] == "ja"
     assert payload["providers"]["youtube"]["chunk_model"] == "small"
 
@@ -89,6 +139,7 @@ def test_apply_settings_updates_handles_provider_fields():
 def test_agent_status_payload_keeps_schema_version():
     payload = agent_status_payload({"agent": {"mode": "strict"}}, schema_version=13)
     assert payload["event"] == "agent_status"
+    assert payload["schema"] == "media2md.cli.agent_status/v1"
     assert payload["ndjson_schema_version"] == 13
     assert payload["permissions"] == {"mode": "strict"}
     assert "creator run" in payload["commands"]["write"]

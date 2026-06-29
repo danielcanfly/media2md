@@ -1045,6 +1045,8 @@ def main() -> int:
     except KeyboardInterrupt:
         print("MEDIA2MD_INTERRUPTED",file=sys.stderr); return 130
     except RuntimeError as exc:
-        print(f"ERROR: {exc}",file=sys.stderr); return 2
+        print(f"ERROR: {exc}",file=sys.stderr)
+        print("tip=Run `media2md status` for project paths and provider readiness, or `media2md auth status` for authentication state.", file=sys.stderr)
+        return 2
 
 if __name__=="__main__": raise SystemExit(main())

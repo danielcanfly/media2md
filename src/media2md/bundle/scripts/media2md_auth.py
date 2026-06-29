@@ -4,6 +4,8 @@ import argparse, http.cookiejar, json, os, sys, urllib.error, urllib.parse, urll
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from media2md.cli_output_service import make_output_model, make_section
+from media2md.health_taxonomy import health_category
 from media2md_youtube_session import profile_inventory, validate_profile, verify_youtube_session, load_auth_profiles, save_auth_profiles
 from media2md_auth_shared import export_profile_snapshot, load_cookie_jar, cookie_stats, refresh_if_configured
 
@@ -156,9 +158,29 @@ def status(output):
   p=data['providers'].get(provider,{}); cookie=Path(str(p.get('cookie_file') or '')) if p.get('cookie_file') else None
   configured=bool(p.get('mode')=='browser_profile' and p.get('browser') and p.get('profile')) or bool(cookie and cookie.is_file())
   rows.append({'provider':provider,'configured':configured,'authenticated':bool(p.get('last_authenticated',False)) if configured else False,'auth_state':p.get('last_auth_state') or ('configured_unverified' if configured else 'unconfigured'),'mode':p.get('mode'),'browser':p.get('browser'),'profile':p.get('profile'),'last_verified_at':p.get('last_verified_at'),'last_refresh_error':p.get('last_refresh_error')})
- if output=='ndjson':
-  for r in rows: print(json.dumps({'schema_version':12,'timestamp':iso_now(),'event':'auth_status',**r},sort_keys=True))
+ if rows:
+  section_status = "ok" if all(row["authenticated"] or not row["configured"] for row in rows) else "warn"
  else:
+  section_status = "ok"
+ payload = make_output_model(
+  event="auth_status",
+  schema="media2md.cli.auth_status/v1",
+  summary="Authentication status summary",
+  sections=(
+   make_section(
+    "auth",
+    status=section_status,
+    message="Authentication state for configured providers",
+    data={"providers": rows},
+   ),
+  ),
+  data={"providers": rows},
+ ).as_dict()
+ if output=='ndjson':
+  print(json.dumps({'schema_version':12,'timestamp':iso_now(),**payload},sort_keys=True))
+ else:
+  print("AUTH_STATUS")
+  print("tip=Run `media2md auth verify <provider>` after logging in to refresh the saved auth state.")
   print('PROVIDER   CONFIGURED  AUTHENTICATED  AUTH_STATE              MODE              BROWSER   PROFILE      LAST_VERIFIED')
   for r in rows: print(f"{r['provider']:<10} {str(r['configured']).lower():<11} {str(r['authenticated']).lower():<14} {(r['auth_state'] or '-'):<23} {(r['mode'] or '-'):<17} {(r['browser'] or '-'):<9} {(r['profile'] or '-'):<12} {r['last_verified_at'] or '-'}")
  return 0

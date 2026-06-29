@@ -5,6 +5,10 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Callable
 
+from media2md.cli_output_service import make_output_model, make_section
+from media2md.health_taxonomy import health_category, summarize_health
+from media2md.provider_registry import provider_adapter
+
 
 def registry_rows(registry_db: Path, *, include_youtube_totals: bool) -> list[dict[str, Any]]:
     try:
@@ -91,6 +95,7 @@ def render_creator_status(
 
 def provider_auth_rows(auth_data: dict[str, Any], providers: tuple[str, ...]) -> list[dict[str, Any]]:
     items = []
+    health_results = []
     for name in providers:
         profile = auth_data.get(name, {})
         cookie = profile.get("cookie_file")
@@ -100,6 +105,10 @@ def provider_auth_rows(auth_data: dict[str, Any], providers: tuple[str, ...]) ->
             and profile.get("browser")
             and profile.get("profile")
         )
+        adapter = provider_adapter(name)
+        health = adapter.health_check() if adapter is not None else None
+        if health is not None:
+            health_results.append(health)
         items.append(
             {
                 "provider": name,
@@ -107,6 +116,12 @@ def provider_auth_rows(auth_data: dict[str, Any], providers: tuple[str, ...]) ->
                 "auth_mode": profile.get("mode"),
                 "browser": profile.get("browser"),
                 "profile": profile.get("profile"),
+                "health_status": health.status if health is not None else "error",
+                "health_category": health_category(health.status if health is not None else "error"),
+                "health_message": health.message if health is not None else "Provider adapter is unavailable",
+                "active_backend": health.active_backend if health is not None else None,
+                "backends": list(health.backends) if health is not None else [],
+                "hints": list(health.hints) if health is not None else [],
             }
         )
     return items
@@ -123,21 +138,47 @@ def system_status_payload(
     creator_count: int,
     registry_db: Path,
 ) -> dict[str, Any]:
-    return {
-        "event": "system_status",
-        "version": version,
-        "project_root": str(root),
-        "timezone": config.get("timezone", "UTC"),
-        "ui_locale": config.get("ui_locale", "en"),
-        "markdown_locale": config.get("markdown_locale", "en"),
-        "instagram_backend": config.get("providers", {}).get("instagram", {}).get("backend", "auto"),
-        "update_repository": config.get("updates", {}).get("repository") or repository,
-        "update_check_on_use": bool(config.get("updates", {}).get("check_on_use", True)),
-        "update_check_every_days": round(int(config.get("updates", {}).get("check_every_minutes", 43200)) / 1440, 1),
-        "providers": provider_auth_rows(auth_data, providers),
-        "creator_count": creator_count,
-        "registry_db": str(registry_db),
-    }
+    provider_rows = provider_auth_rows(auth_data, providers)
+    health_summary = summarize_health([
+        provider_adapter(item["provider"]).health_check()
+        for item in provider_rows
+        if provider_adapter(item["provider"]) is not None
+    ])
+    payload = make_output_model(
+        event="system_status",
+        schema="media2md.cli.system_status/v1",
+        summary="System status summary",
+        sections=(
+            make_section(
+                "providers",
+                status=str(health_summary["status"]),
+                message="Provider health summary",
+                data={"providers": provider_rows, "provider_health": health_summary},
+            ),
+            make_section(
+                "workspace",
+                status="ok",
+                message="Workspace metadata is available",
+                data={"project_root": str(root), "registry_db": str(registry_db), "creator_count": creator_count},
+            ),
+        ),
+        data={
+            "version": version,
+            "project_root": str(root),
+            "timezone": config.get("timezone", "UTC"),
+            "ui_locale": config.get("ui_locale", "en"),
+            "markdown_locale": config.get("markdown_locale", "en"),
+            "instagram_backend": config.get("providers", {}).get("instagram", {}).get("backend", "auto"),
+            "update_repository": config.get("updates", {}).get("repository") or repository,
+            "update_check_on_use": bool(config.get("updates", {}).get("check_on_use", True)),
+            "update_check_every_days": round(int(config.get("updates", {}).get("check_every_minutes", 43200)) / 1440, 1),
+            "providers": provider_rows,
+            "provider_health": health_summary,
+            "creator_count": creator_count,
+            "registry_db": str(registry_db),
+        },
+    )
+    return payload.as_dict()
 
 
 def print_system_status(payload: dict[str, Any]) -> None:
@@ -156,24 +197,49 @@ def print_system_status(payload: dict[str, Any]) -> None:
         "registry_db",
     ):
         print(f"{key}={payload[key]}")
-    print("\nPROVIDER   CONFIGURED  MODE              BROWSER   PROFILE")
+    provider_health = payload.get("provider_health", {})
+    if provider_health:
+        print(f"provider_health_status={provider_health.get('status')}")
+        print(f"provider_health_category={provider_health.get('category')}")
+    print(f"primary_markdown_root={payload['project_root']}/markdown")
+    print(f"primary_workspace_root={payload['project_root']}/workspace")
+    print("tip=Run `media2md auth status --output ndjson` for machine-readable auth details.")
+    print("\nPROVIDER   CONFIGURED  HEALTH    CATEGORY         BACKEND      MODE              BROWSER   PROFILE")
     for item in payload["providers"]:
         print(
-            f"{item['provider']:<10} {str(item['configured']).lower():<11} {(item['auth_mode'] or '-'):<17} "
+            f"{item['provider']:<10} {str(item['configured']).lower():<11} {item.get('health_status', '-'): <9} "
+            f"{item.get('health_category', '-'): <16} {(item.get('active_backend') or '-'): <12} {(item['auth_mode'] or '-'):<17} "
             f"{(item['browser'] or '-'):<9} {item['profile'] or '-'}"
         )
 
 
 def settings_payload(config: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "event": "settings",
-        "timezone": config.get("timezone", "UTC"),
-        "ui_locale": config.get("ui_locale", "en"),
-        "markdown_locale": config.get("markdown_locale", "en"),
-        "defaults": config.get("defaults", {}),
-        "providers": config.get("providers", {}),
-        "updates": config.get("updates", {}),
-    }
+    payload = make_output_model(
+        event="settings",
+        schema="media2md.cli.settings/v1",
+        summary="Current settings projection",
+        sections=(
+            make_section(
+                "settings",
+                status="ok",
+                message="Settings are available",
+                data={
+                    "timezone": config.get("timezone", "UTC"),
+                    "ui_locale": config.get("ui_locale", "en"),
+                    "markdown_locale": config.get("markdown_locale", "en"),
+                },
+            ),
+        ),
+        data={
+            "timezone": config.get("timezone", "UTC"),
+            "ui_locale": config.get("ui_locale", "en"),
+            "markdown_locale": config.get("markdown_locale", "en"),
+            "defaults": config.get("defaults", {}),
+            "providers": config.get("providers", {}),
+            "updates": config.get("updates", {}),
+        },
+    )
+    return payload.as_dict()
 
 
 def print_json_block(title: str, payload: dict[str, Any]) -> None:
@@ -223,22 +289,35 @@ def apply_settings_updates(config: dict[str, Any], args) -> dict[str, Any]:
 
 
 def agent_status_payload(config: dict[str, Any], *, schema_version: int) -> dict[str, Any]:
-    return {
-        "event": "agent_status",
-        "non_interactive_locale": "en",
-        "ndjson_schema_version": schema_version,
-        "permissions": config.get("agent", {}),
-        "update_confirmation_required": True,
-        "delete_confirmation_required": True,
-        "drain_confirmation_required": True,
-        "stale_catalog_confirmation_required": True,
-        "browser_launch_confirmation_required": True,
-        "browser_launch_policy": "never",
-        "normal_commands_may_launch_browser": False,
-        "human_required_for": ["password", "2fa", "captcha", "platform_challenge"],
-        "commands": {
-            "read": ["status", "settings show", "creator status", "creator policy show", "auth status", "doctor all", "update status"],
-            "write": ["settings set", "creator add", "creator policy set", "creator run", "scheduler tick", "auth refresh"],
-            "confirmation": ["update install", "update rollback", "creator delete", "data delete-all", "drain"],
+    payload = make_output_model(
+        event="agent_status",
+        schema="media2md.cli.agent_status/v1",
+        summary="Agent-facing command and confirmation policy",
+        sections=(
+            make_section(
+                "permissions",
+                status="ok",
+                message="Agent permissions model",
+                data={"permissions": config.get("agent", {})},
+            ),
+        ),
+        data={
+            "non_interactive_locale": "en",
+            "ndjson_schema_version": schema_version,
+            "permissions": config.get("agent", {}),
+            "update_confirmation_required": True,
+            "delete_confirmation_required": True,
+            "drain_confirmation_required": True,
+            "stale_catalog_confirmation_required": True,
+            "browser_launch_confirmation_required": True,
+            "browser_launch_policy": "never",
+            "normal_commands_may_launch_browser": False,
+            "human_required_for": ["password", "2fa", "captcha", "platform_challenge"],
+            "commands": {
+                "read": ["status", "settings show", "creator status", "creator policy show", "auth status", "doctor all", "update status"],
+                "write": ["settings set", "creator add", "creator policy set", "creator run", "scheduler tick", "auth refresh"],
+                "confirmation": ["update install", "update rollback", "creator delete", "data delete-all", "drain"],
+            },
         },
-    }
+    )
+    return payload.as_dict()

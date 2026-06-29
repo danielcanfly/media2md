@@ -12,6 +12,9 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from media2md.cli_output_service import make_output_model, make_section
+from media2md.health_taxonomy import health_category, normalize_health_status, summarize_health
+from media2md.results import HealthResult
 from media2md.probe import probe_command
 from media2md_paths import command_path
 from media2md_ytdlp import (
@@ -35,9 +38,30 @@ def _command_ready(name: str, *, package: str | None = None) -> tuple[bool, dict
     probe = probe_command(name, package=package or name)
     return probe.ok, {
         "status": probe.status,
+        "category": health_category(probe.status),
         "output": probe.output or None,
         "hint": probe.hint or None,
     }
+
+
+def _attach_health(payload: dict[str, Any], *, status: str | None, message: str | None = None) -> dict[str, Any]:
+    normalized = normalize_health_status(status)
+    payload["health_status"] = normalized
+    payload["health_category"] = health_category(normalized)
+    if message is not None and "health_message" not in payload:
+        payload["health_message"] = message
+    return payload
+
+
+def _summarize_command_probes(probes: list[dict[str, Any]]) -> dict[str, object]:
+    results = [
+        HealthResult(
+            status=normalize_health_status(item.get("status")),
+            message=str(item.get("hint") or item.get("output") or item.get("status") or ""),
+        )
+        for item in probes
+    ]
+    return summarize_health(results)
 
 
 def auth_args(provider: str) -> list[str]:
@@ -95,17 +119,25 @@ def instagram_payload(shortcode: str | None) -> dict[str, Any]:
             result = _run([sys.executable, str(INSTALOADER), "inspect", shortcode], 300)
             payload["instaloader_probe"] = {"ok": result.returncode == 0, "error": (result.stderr or result.stdout)[-1000:] if result.returncode else None}
     payload["ready"] = bool(gallery_ready and instaloader_ready and payload["cookie_file_exists"])
+    payload["dependency_health"] = _summarize_command_probes([gallery_probe, instaloader_probe])
+    _attach_health(payload, status="ok" if payload["ready"] else payload["dependency_health"]["status"], message="Instagram backend doctor status")
     return payload
 
 
 def impersonation_payload() -> dict[str, Any]:
     inventory = impersonation_targets()
-    return {
+    payload = {
         "event": "impersonation_doctor", "ready": bool(inventory["ready"]),
         "curl_cffi_version": inventory["curl_cffi_version"], "targets": inventory["targets"],
         "preferred_target": inventory["preferred_target"],
         "remediation": [] if inventory["ready"] else ["Install with: python -m pip install -U '.[impersonation]'"],
     }
+    _attach_health(
+        payload,
+        status="ok" if payload["ready"] else "warn",
+        message="Impersonation target availability",
+    )
+    return payload
 
 
 def _youtube_caption_probe(yt: str, base: list[str], url: str) -> dict[str, Any]:
@@ -224,10 +256,15 @@ def _access_probe(provider: str, url: str, *, transcription_smoke_test: bool = F
     payload["transcription_binary_ready_probe"] = bool(whisper_ready)
     if not yt_ready:
         payload.update(error="yt-dlp is not installed", error_code="missing_dependency", retryable=False, action_required=True, required_action="install_provider_extra")
+        payload["dependency_health"] = _summarize_command_probes([yt_probe, ffmpeg_probe, whisper_probe])
+        _attach_health(payload, status="warn", message=payload["error"])
         return payload
     if provider == "tiktok" and not impersonation_args("tiktok"):
         payload.update(error="No browser impersonation target is available.", error_code="impersonation_unavailable", retryable=False, action_required=True, required_action="install_impersonation")
+        payload["dependency_health"] = _summarize_command_probes([yt_probe, ffmpeg_probe, whisper_probe])
+        _attach_health(payload, status="warn", message=payload["error"])
         return payload
+    payload["dependency_health"] = _summarize_command_probes([yt_probe, ffmpeg_probe, whisper_probe])
     metadata = _run([yt, *base, "--dump-single-json", "--skip-download", "--no-playlist", url], 300)
     payload["metadata_used_auth"] = False
     auth_preflight: dict[str, Any] | None = None
@@ -256,6 +293,7 @@ def _access_probe(provider: str, url: str, *, transcription_smoke_test: bool = F
                 auth_state=auth_preflight.get("auth_state"),
                 guidance=auth_preflight.get("guidance", []),
             )
+        _attach_health(payload, status=payload.get("error_code") == "youtube_session_unavailable" and "warn" or "error", message=payload["error"])
         return payload
     payload["metadata_ready"] = True
     try:
@@ -308,6 +346,7 @@ def _access_probe(provider: str, url: str, *, transcription_smoke_test: bool = F
         if not successful:
             error = "; ".join(f"{item['strategy']}={item['error']}" for item in results) or "No YouTube audio strategy was available"
             payload.update(error=error, **classify_access_error(provider, error))
+            _attach_health(payload, status="error", message=payload["error"])
             return payload
         payload["audio_download_ready"] = True
         payload["audio_download_strategy"] = successful["name"]
@@ -328,6 +367,7 @@ def _access_probe(provider: str, url: str, *, transcription_smoke_test: bool = F
             if probe.returncode != 0:
                 error = (probe.stderr or probe.stdout or "download probe failed")[-4000:]
                 payload.update(error=error, **classify_access_error(provider, error))
+                _attach_health(payload, status="error", message=payload["error"])
                 return payload
             payload["audio_download_ready"] = True
             payload["download_ready"] = True
@@ -346,12 +386,18 @@ def _access_probe(provider: str, url: str, *, transcription_smoke_test: bool = F
             payload["pipeline_end_to_end_verified"] = False
             payload["fully_ready"] = False
             payload["verification_note"] = "Run again with --transcription-smoke-test for a strong local transcription check."
+    _attach_health(
+        payload,
+        status="ok" if payload.get("fully_ready") else "warn" if payload.get("pipeline_ready") else "error",
+        message=payload.get("error") or payload.get("verification_note") or "Access doctor status",
+    )
     return payload
 
 
 def youtube_access_payload(video_id: str, *, transcription_smoke_test: bool = False) -> dict[str, Any]:
     if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
-        return {"event": "youtube_access_doctor", "provider": "youtube", "pipeline_ready": False, "fully_ready": False, "error_code": "invalid_video_id", "error": f"Invalid YouTube video ID: {video_id}", "retryable": False, "action_required": True, "required_action": "provide_valid_video_id"}
+        payload = {"event": "youtube_access_doctor", "provider": "youtube", "pipeline_ready": False, "fully_ready": False, "error_code": "invalid_video_id", "error": f"Invalid YouTube video ID: {video_id}", "retryable": False, "action_required": True, "required_action": "provide_valid_video_id"}
+        return _attach_health(payload, status="warn", message=payload["error"])
     payload = _access_probe("youtube", f"https://www.youtube.com/watch?v={video_id}", transcription_smoke_test=transcription_smoke_test)
     payload["po_token_providers"] = po_token_providers()
     payload["browser_safety"] = browser_safety_payload()
@@ -359,13 +405,15 @@ def youtube_access_payload(video_id: str, *, transcription_smoke_test: bool = Fa
 
 def tiktok_access_payload(video_id: str, creator: str, *, transcription_smoke_test: bool = False) -> dict[str, Any]:
     if not re.fullmatch(r"\d{8,24}", video_id):
-        return {"event": "tiktok_access_doctor", "provider": "tiktok", "pipeline_ready": False, "fully_ready": False, "error_code": "invalid_video_id", "error": f"Invalid TikTok video ID: {video_id}", "retryable": False, "action_required": True, "required_action": "provide_valid_video_id"}
+        payload = {"event": "tiktok_access_doctor", "provider": "tiktok", "pipeline_ready": False, "fully_ready": False, "error_code": "invalid_video_id", "error": f"Invalid TikTok video ID: {video_id}", "retryable": False, "action_required": True, "required_action": "provide_valid_video_id"}
+        return _attach_health(payload, status="warn", message=payload["error"])
     handle = creator.strip().lstrip("@")
     url = f"https://www.tiktok.com/@{handle}/video/{video_id}"
     payload = _access_probe("tiktok", url, transcription_smoke_test=transcription_smoke_test)
     if payload.get("pipeline_ready"):
         payload["live_probe_ready"] = True
         payload["degraded"] = False
+        _attach_health(payload, status="ok", message=payload.get("health_message"))
         return payload
 
     # The simple Doctor route can hit a transient curl-cffi/TLS failure even
@@ -419,6 +467,7 @@ def tiktok_access_payload(video_id: str, creator: str, *, transcription_smoke_te
         payload["error"] = None
         payload["error_code"] = None
         payload["retryable"] = None
+        _attach_health(payload, status="ok", message="TikTok shared processing cascade is ready")
         return payload
 
     recent = tiktok_recent_completion(video_id)
@@ -443,10 +492,12 @@ def tiktok_access_payload(video_id: str, creator: str, *, transcription_smoke_te
         )
         payload["error"] = shared_download_error or live_error
         payload["error_code"] = "transient_network_error"
+        _attach_health(payload, status="warn", message=payload["warning"])
         return payload
 
     payload["live_probe_ready"] = False
     payload["degraded"] = False
+    _attach_health(payload, status="error", message=payload.get("error") or "TikTok access doctor failed")
     return payload
 
 
@@ -496,6 +547,29 @@ def main() -> int:
     if "youtube_access" in payload: checks.append(payload["youtube_access"].get("pipeline_ready"))
     if "tiktok_access" in payload: checks.append(payload["tiktok_access"].get("pipeline_ready"))
     payload["ready"] = all(bool(item) for item in checks)
+    doctor_results = [
+        HealthResult(status=payload["instagram"].get("health_status", "error"), message=str(payload["instagram"].get("health_message") or "instagram")),
+        HealthResult(status=payload["impersonation"].get("health_status", "error"), message=str(payload["impersonation"].get("health_message") or "impersonation")),
+    ]
+    if "youtube_access" in payload:
+        doctor_results.append(HealthResult(status=payload["youtube_access"].get("health_status", "error"), message=str(payload["youtube_access"].get("health_message") or "youtube_access")))
+    if "tiktok_access" in payload:
+        doctor_results.append(HealthResult(status=payload["tiktok_access"].get("health_status", "error"), message=str(payload["tiktok_access"].get("health_message") or "tiktok_access")))
+    payload["health"] = summarize_health(doctor_results)
+    _attach_health(payload, status="ok" if payload["ready"] else payload["health"]["status"], message="Combined doctor status")
+    payload["schema"] = "media2md.cli.doctor/v1"
+    payload["sections"] = [
+        make_section("instagram", status=payload["instagram"].get("health_status", "error"), message=payload["instagram"].get("health_message"), data=payload["instagram"]).as_dict(),
+        make_section("impersonation", status=payload["impersonation"].get("health_status", "error"), message=payload["impersonation"].get("health_message"), data=payload["impersonation"]).as_dict(),
+        *(
+            [make_section("youtube_access", status=payload["youtube_access"].get("health_status", "error"), message=payload["youtube_access"].get("health_message"), data=payload["youtube_access"]).as_dict()]
+            if "youtube_access" in payload else []
+        ),
+        *(
+            [make_section("tiktok_access", status=payload["tiktok_access"].get("health_status", "error"), message=payload["tiktok_access"].get("health_message"), data=payload["tiktok_access"]).as_dict()]
+            if "tiktok_access" in payload else []
+        ),
+    ]
     render(payload, args.output, "MEDIA2MD_DOCTOR"); return 0 if payload["ready"] else 2
 
 

@@ -36,6 +36,8 @@ def test_add_common_top_level_commands_registers_expected_commands():
     args = parser.parse_args(["init", "--language", "en", "--non-interactive"])
     assert args.command == "init"
     assert args.language == "en"
+    root_help = parser.format_help().lower()
+    assert "show project, provider, and output-location status" in root_help
 
 
 def test_add_common_update_commands_registers_check_repository():
@@ -111,6 +113,7 @@ def test_add_common_creator_commands_media2md_shape():
     args = parser.parse_args(["creator", "refresh-catalog", "@creator-name", "--provider", "youtube"])
     assert args.command == "creator"
     assert args.creator_command == "refresh-catalog"
+    assert "refresh the saved creator catalog" in creator.format_help().lower()
 
 
 def test_add_common_creator_commands_social2md_shape():
