@@ -1,46 +1,31 @@
 # Media2MD
 
-Media2MD is a local-first command-line tool for downloading supported media from Instagram, YouTube, and TikTok, transcribing speech locally, and turning the results into structured Markdown.
+Media2MD is a local-first command-line tool that collects supported media from Instagram, YouTube, and TikTok, transcribes speech locally, and turns the results into structured Markdown.
 
-It is designed for both direct human use in the terminal and agent-driven workflows that need stable commands, schedulable operations, and machine-readable output. Media2MD can reuse a browser session you already authenticated locally, but it does not enter passwords, bypass 2FA, solve CAPTCHAs, or defeat platform challenges.
+It is built for both people working directly in the terminal and agents that need stable commands, schedulable workflows, and machine-readable output. Media2MD can reuse a browser session you already authenticated locally, but it does not enter passwords, bypass 2FA, solve CAPTCHAs, or defeat platform challenges.
 
-The CLI currently supports English, Japanese, and Chinese locale presets. In code, the supported locale values are `en`, `ja`, `zh-TW`, and `zh-CN`.
-
-## Why Media2MD
+## Highlights
 
 - One CLI for Instagram, YouTube, and TikTok intake
-- Local runtime with managed state and repeatable command workflows
-- Markdown output that is easy to archive, search, or hand to agents
-- Browser-profile-based auth reuse without storing credentials in the package
-- Queue, creator catalog refresh, processing, runtime, and health-check commands in one tool
-- Human-friendly CLI flows plus stable surfaces for automation and agent orchestration
+- Local runtime and local transcription workflows
+- Markdown output that is easy to archive, search, summarize, or import into a knowledge base
+- Creator tracking, catalog refresh, queue processing, diagnostics, and backup commands in one tool
+- Human-friendly terminal usage plus stable surfaces for automation and agent orchestration
 
-## What It Helps With
+## What It Is For
 
-Media2MD is aimed at a very practical problem: keeping up with creator output without having to manually watch, sort, and summarize every update yourself.
-
-It is especially useful when you want to:
+Media2MD is useful when you want to:
 
 - track specific creators over time instead of checking them manually
 - let an agent run scheduled collection and follow-up workflows
 - turn media output into Markdown that can later be organized into a wiki or knowledge base
-- process content locally on your own machine instead of relying on a hosted external service
+- process content on your own machine instead of depending on a hosted external service
 
-The automation surface is designed for agent use, and current agent-oriented scheduling and adaptation work is primarily aligned with OpenClaw-based workflows.
-
-## Core Capabilities
-
-- Track creators and refresh their catalogs across supported providers
-- Run batch processing with configurable limits and per-type batch sizing
-- Prefer one long YouTube video per batch when long-form processing should stay isolated
-- Reuse local browser-backed auth for provider access where supported
-- Generate Markdown artifacts that are easier for agents to summarize, tag, transform, or import into a knowledge base
-- Run health checks, access diagnostics, backup, and verification from the CLI
-- Operate entirely on local machine resources for download, processing, and transcription workflows
+The current agent-oriented scheduling and adaptation work is primarily aligned with OpenClaw-based workflows.
 
 ## Install
 
-Install from PyPI:
+Install the base package:
 
 ```bash
 pip install media2md
@@ -69,6 +54,15 @@ Initialize the managed runtime:
 media2md init --language <language> --markdown-language <markdown-language> --timezone <timezone> --non-interactive
 ```
 
+Supported language values:
+
+```text
+en
+ja
+zh-TW
+zh-CN
+```
+
 Examples:
 
 ```bash
@@ -77,94 +71,34 @@ media2md init --language zh-TW --markdown-language zh-TW --timezone Asia/Taipei 
 media2md init --language en --markdown-language en --timezone <timezone> --non-interactive
 ```
 
-Run a health check:
+Connect and verify provider auth:
 
 ```bash
-media2md doctor all
-```
-
-Inspect the runtime location:
-
-```bash
-media2md runtime status
-media2md runtime path
-```
-
-## Tutorial
-
-If this is your first run, a practical sequence looks like this:
-
-1. Install the package and the provider extras you need.
-2. Initialize the managed runtime with your preferred language and timezone.
-3. Connect and verify browser-backed auth for the provider you want to use.
-4. Add a creator or inspect a single media URL.
-5. Refresh the creator catalog or process a single item immediately.
-6. Check status, generated Markdown, and health diagnostics.
-
-A minimal setup might look like:
-
-```bash
-pip install "media2md[<provider-extra>]"
-media2md init --language <language> --markdown-language <markdown-language> --timezone <timezone> --non-interactive
 media2md auth profiles youtube --browser chrome
 media2md auth connect youtube --browser chrome --profile Default
 media2md auth verify youtube
+```
+
+Track a creator and process content:
+
+```bash
 media2md creator add https://www.youtube.com/@creator-name --provider youtube
 media2md creator refresh-catalog @creator-name --provider youtube --force-full
 media2md creator run @creator-name --provider youtube
 ```
 
-Language-specific initialization examples:
+Inspect your runtime and health status:
 
 ```bash
-media2md init --language ja --markdown-language ja --timezone Asia/Tokyo --non-interactive
-media2md init --language zh-TW --markdown-language zh-TW --timezone Asia/Taipei --non-interactive
-media2md init --language en --markdown-language en --timezone <timezone> --non-interactive
+media2md status
+media2md doctor all
+media2md runtime base-path
+media2md runtime path
 ```
-
-## Authentication
-
-Media2MD reads cookies from a local browser profile that you explicitly choose.
-
-Typical flow:
-
-```bash
-media2md auth profiles youtube --browser chrome
-media2md auth connect youtube --browser chrome --profile Default
-media2md auth verify youtube
-```
-
-Instagram example:
-
-```bash
-media2md auth profiles instagram --browser chrome
-media2md auth connect instagram --browser chrome --profile Default
-media2md auth verify instagram
-```
-
-TikTok example:
-
-```bash
-media2md auth profiles tiktok --browser chrome
-media2md auth connect tiktok --browser chrome --profile Default
-media2md auth verify tiktok
-```
-
-The same `profiles`, `connect`, and `verify` flow is available for all supported providers.
-
-## Provider Support
-
-Media2MD currently focuses on:
-
-- Instagram creator and media workflows
-- YouTube channel, video, and Shorts workflows
-- TikTok creator and media workflows
-
-The project is CLI-first and optimized for local execution on a machine that already has access to the browser profiles you want to reuse.
 
 ## Common Workflows
 
-Add a creator and run a full sync:
+Add a creator and refresh the creator catalog:
 
 ```bash
 media2md creator add https://www.youtube.com/@creator-name --provider youtube
@@ -172,47 +106,18 @@ media2md creator refresh-catalog @creator-name --provider youtube --force-full
 media2md creator status --provider youtube --creator @creator-name
 ```
 
-Process a single media URL:
-
-```bash
-media2md media add <media-url> --process-now
-```
-
-Run queue or creator processing:
+Process a creator queue into Markdown:
 
 ```bash
 media2md creator run @creator-name --provider youtube
 media2md status --output ndjson
 ```
 
-Import an existing legacy project into the managed runtime:
-
-```bash
-media2md runtime import --from-project <legacy-project-path>
-```
-
-Inspect a URL before adding it:
+Process a single media URL immediately:
 
 ```bash
 media2md media inspect <media-url>
-```
-
-List tracked media:
-
-```bash
-media2md media list --provider tiktok
-```
-
-Creator inputs can be either full creator URLs or provider-qualified handles. For bare handles such as `@creator-name` or `creator-name`, pass `--provider` explicitly so the CLI knows which platform to target.
-
-`media2md creator refresh-catalog` is the preferred public command name for refreshing a creator catalog. The shorter `media2md creator sync` command still exists in the full command surface.
-
-Run a deeper environment and access check:
-
-```bash
-media2md doctor all
-media2md doctor youtube-access --video-id <video-id> --transcription-smoke-test
-media2md doctor tiktok-access --video-id <video-id> --creator <creator>
+media2md media add <media-url> --process-now
 ```
 
 Create and verify a state backup:
@@ -222,9 +127,25 @@ media2md data backup --destination ~/media2md-backups
 media2md data verify-backup ~/media2md-backups/media2md-state-YYYYMMDDTHHMMSSZ.zip
 ```
 
-## Output
+Creator inputs can be either full creator URLs or provider-qualified handles. For bare handles such as `@creator-name` or `creator-name`, pass `--provider` explicitly so the CLI knows which platform to target.
 
-Generated output is organized under the local runtime state. New installs default to `~/Downloads/media2md`, and you can relocate that base path later with `media2md runtime set-base-path <path>`. Existing installs that already use an older managed location keep that location until you explicitly move them. Typical Markdown paths look like:
+`media2md creator refresh-catalog` is the preferred public command name for refreshing a creator catalog. `media2md creator sync` still exists in the full CLI surface for lower-level use.
+
+## Output and Runtime
+
+New installs default to `~/Downloads/media2md`. Existing installs that already use an older managed location keep that location until you explicitly move them.
+
+Useful runtime commands:
+
+```bash
+media2md runtime status
+media2md runtime base-path
+media2md runtime path
+media2md runtime set-base-path <path>
+media2md runtime install --force
+```
+
+Typical Markdown output paths:
 
 ```text
 markdown/youtube/<creator>/videos/
@@ -233,23 +154,14 @@ markdown/instagram/<creator>/
 markdown/tiktok/<creator>/
 ```
 
-## Runtime Model
+## Documentation
 
-Media2MD installs a managed runtime for the current package version and keeps state separately from code. That makes upgrades and runtime recovery more predictable than mixing scripts and user data in one folder.
-
-Useful commands:
-
-```bash
-media2md runtime status
-media2md runtime base-path
-media2md runtime set-base-path <path>
-media2md runtime install --force
-media2md doctor all
-```
+- [First Run Guide](docs/FIRST_RUN.md)
+- [CLI Reference](docs/CLI_REFERENCE.md)
+- [Release Process](docs/RELEASE_PROCESS.md)
+- [Changelog](CHANGELOG.md)
 
 ## CLI Areas
-
-The CLI is organized around a few main areas:
 
 - `auth`: browser profile discovery, connection, verification, refresh, and status
 - `creator`: add creators, refresh catalogs, inspect status, set policies, and run processing

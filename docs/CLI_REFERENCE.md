@@ -171,15 +171,19 @@ The packaged CLI also supports:
 ```text
 media2md runtime status
 media2md runtime path
+media2md runtime base-path
 media2md runtime install
 media2md runtime import
+media2md runtime set-base-path
 ```
 
 Examples:
 
 ```bash
 media2md runtime status
+media2md runtime base-path
 media2md runtime path
+media2md runtime set-base-path <path>
 media2md runtime install --force
 media2md runtime import --from-project <legacy-project-path>
 ```
