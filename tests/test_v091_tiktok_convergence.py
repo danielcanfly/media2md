@@ -140,7 +140,6 @@ def test_v091_installer_and_active_versions_are_consistent():
     spec.loader.exec_module(installer)
 
     assert installer.VERSION == "0.9.1"
-    assert media2md.__version__ == "0.9.1"
-    assert bootstrap.VERSION == "0.9.1"
-    assert 'VERSION = "0.9.1"' in (root / "src/media2md/bundle/scripts/media2md.py").read_text()
-    assert 'VERSION = "0.9.1"' in (root / "src/media2md/bundle/scripts/social2md.py").read_text()
+    assert media2md.__version__ == bootstrap.VERSION
+    assert f'VERSION = "{bootstrap.VERSION}"' in (root / "src/media2md/bundle/scripts/media2md.py").read_text()
+    assert f'VERSION = "{bootstrap.VERSION}"' in (root / "src/media2md/bundle/scripts/social2md.py").read_text()

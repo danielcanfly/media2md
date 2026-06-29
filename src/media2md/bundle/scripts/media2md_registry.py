@@ -2973,37 +2973,42 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
             )
             try:
                 stage = "starting"
-                while True:
-                    if process.poll() is not None:
-                        break
-                    if LEGACY_GENERIC_DB.is_file():
-                        try:
-                            legacy = sqlite3.connect(LEGACY_GENERIC_DB)
-                            legacy.row_factory = sqlite3.Row
-                            status_row = legacy.execute(
-                                "SELECT status FROM media WHERE provider=? AND external_id=?",
-                                (provider, str(row["external_id"])),
-                            ).fetchone()
-                            legacy.close()
-                            if status_row and status_row["status"]:
-                                stage = str(status_row["status"])
-                        except Exception:
-                            pass
-                    if output == "human":
-                        _render_stage_progress(
-                            provider=provider,
-                            creator=handle,
-                            media_id=str(row["external_id"]),
-                            batch_number=batches,
-                            batch_count=estimated_batches,
-                            current=index,
-                            total=len(rows),
-                            stage=stage,
-                            elapsed=time.monotonic() - item_started,
-                        )
-                    time.sleep(0.25)
-                stdout, stderr = process.communicate(timeout=5)
-                result = subprocess.CompletedProcess(cmd, process.returncode, stdout, stderr)
+                poll = getattr(process, "poll", None)
+                if not callable(poll):
+                    stdout, stderr = process.communicate(timeout=item_timeout)
+                    result = subprocess.CompletedProcess(cmd, process.returncode, stdout, stderr)
+                else:
+                    while True:
+                        if process.poll() is not None:
+                            break
+                        if LEGACY_GENERIC_DB.is_file():
+                            try:
+                                legacy = sqlite3.connect(LEGACY_GENERIC_DB)
+                                legacy.row_factory = sqlite3.Row
+                                status_row = legacy.execute(
+                                    "SELECT status FROM media WHERE provider=? AND external_id=?",
+                                    (provider, str(row["external_id"])),
+                                ).fetchone()
+                                legacy.close()
+                                if status_row and status_row["status"]:
+                                    stage = str(status_row["status"])
+                            except Exception:
+                                pass
+                        if output == "human":
+                            _render_stage_progress(
+                                provider=provider,
+                                creator=handle,
+                                media_id=str(row["external_id"]),
+                                batch_number=batches,
+                                batch_count=estimated_batches,
+                                current=index,
+                                total=len(rows),
+                                stage=stage,
+                                elapsed=time.monotonic() - item_started,
+                            )
+                        time.sleep(0.25)
+                    stdout, stderr = process.communicate(timeout=5)
+                    result = subprocess.CompletedProcess(cmd, process.returncode, stdout, stderr)
             except subprocess.TimeoutExpired:
                 try:
                     os.killpg(process.pid, signal.SIGTERM)
