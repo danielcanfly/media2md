@@ -2759,6 +2759,7 @@ def _batch_composition(rows: list[sqlite3.Row]) -> dict[str, int]:
 def _creator_run_summary(
     *, provider: str, handle: str, batches: int, processed: int,
     failures: int, status: str, remaining: int, output: str,
+    markdown_root: Path | None = None, latest_markdown_path: str | None = None,
 ) -> None:
     completed = max(0, processed - failures)
     if output == "human":
@@ -2767,13 +2768,50 @@ def _creator_run_summary(
             f"batches={batches} processed={processed} completed={completed} "
             f"failures={failures} remaining={max(0, remaining)}"
         )
+        if latest_markdown_path:
+            print(f"latest_markdown_path={latest_markdown_path}")
+        if markdown_root:
+            print(f"markdown_root={markdown_root}")
     else:
         print(json.dumps({
             "schema_version": 14, "event": "creator_run_completed",
             "provider": provider, "creator": handle, "status": status,
             "batches": batches, "processed": processed, "completed": completed,
             "failures": failures, "remaining": max(0, remaining),
+            "latest_markdown_path": latest_markdown_path,
+            "markdown_root": str(markdown_root) if markdown_root else None,
         }, ensure_ascii=False), flush=True)
+
+
+def _creator_markdown_root(provider: str, handle: str) -> Path:
+    return ROOT / "markdown" / provider / safe_name(handle)
+
+
+def _latest_markdown_path(provider: str, external_id: str) -> str | None:
+    conn = connect()
+    try:
+        row = conn.execute(
+            "SELECT markdown_path FROM media WHERE provider=? AND external_id=?",
+            (provider, external_id),
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row or not row["markdown_path"]:
+        return None
+    return str(ROOT / str(row["markdown_path"]))
+
+
+def _render_stage_progress(*, provider: str, creator: str, media_id: str, batch_number: int,
+                           batch_count: int, current: int, total: int, stage: str, elapsed: float) -> None:
+    bar_width = 24
+    complete = max(0, min(bar_width, int((current / max(1, total)) * bar_width)))
+    bar = "━" * complete + " " * (bar_width - complete)
+    elapsed_text = _format_eta(elapsed)
+    line = (
+        f"\r[{bar}] batch {batch_number}/{batch_count} item {current}/{total} "
+        f"stage={stage:<12} elapsed={elapsed_text} provider={provider} creator={creator} media_id={media_id}"
+    )
+    print(line, end="", flush=True)
 
 
 def _runtime_limit_error(text: str) -> bool:
@@ -2820,6 +2858,7 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
     processed_total = 0
     durations: list[float] = []
     runtime_paused = False
+    latest_markdown_path: str | None = None
 
     while True:
         if runtime_limit is not None and time.monotonic() - started >= runtime_limit:
@@ -2913,7 +2952,37 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
                 start_new_session=True,
             )
             try:
-                stdout, stderr = process.communicate(timeout=item_timeout)
+                stage = "starting"
+                while True:
+                    if process.poll() is not None:
+                        break
+                    if LEGACY_GENERIC_DB.is_file():
+                        try:
+                            legacy = sqlite3.connect(LEGACY_GENERIC_DB)
+                            legacy.row_factory = sqlite3.Row
+                            status_row = legacy.execute(
+                                "SELECT status FROM media WHERE provider=? AND external_id=?",
+                                (provider, str(row["external_id"])),
+                            ).fetchone()
+                            legacy.close()
+                            if status_row and status_row["status"]:
+                                stage = str(status_row["status"])
+                        except Exception:
+                            pass
+                    if output == "human":
+                        _render_stage_progress(
+                            provider=provider,
+                            creator=handle,
+                            media_id=str(row["external_id"]),
+                            batch_number=batches,
+                            batch_count=estimated_batches,
+                            current=index,
+                            total=len(rows),
+                            stage=stage,
+                            elapsed=time.monotonic() - item_started,
+                        )
+                    time.sleep(0.25)
+                stdout, stderr = process.communicate(timeout=5)
                 result = subprocess.CompletedProcess(cmd, process.returncode, stdout, stderr)
             except subprocess.TimeoutExpired:
                 try:
@@ -2954,6 +3023,8 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
                 print("REGISTRY_INTERRUPTED", file=sys.stderr)
                 return 130
             elapsed = time.monotonic() - item_started
+            if output == "human":
+                print("", flush=True)
             if output == "human" and result.stdout:
                 for child_line in result.stdout.splitlines():
                     if child_line.startswith((
@@ -2968,6 +3039,7 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
                 durations.append(elapsed)
                 if len(durations) > 20:
                     durations = durations[-20:]
+                latest_markdown_path = _latest_markdown_path(provider, str(row["external_id"])) or latest_markdown_path
 
             conn = connect()
             sync_generic_status_from_legacy(conn, provider, row["external_id"])
@@ -3063,6 +3135,8 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
                     provider=provider, handle=handle, batches=batches, processed=processed_total,
                     failures=failures, status="paused_runtime_limit",
                     remaining=_actual_creator_remaining(provider, handle), output=output,
+                    markdown_root=_creator_markdown_root(provider, handle),
+                    latest_markdown_path=latest_markdown_path,
                 )
                 return 0
 
@@ -3071,6 +3145,8 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
                     provider=provider, handle=handle, batches=batches, processed=processed_total,
                     failures=failures, status="stopped_max_failures",
                     remaining=_actual_creator_remaining(provider, handle), output=output,
+                    markdown_root=_creator_markdown_root(provider, handle),
+                    latest_markdown_path=latest_markdown_path,
                 )
                 return 2
 
@@ -3094,6 +3170,8 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
         provider=provider, handle=handle, batches=batches, processed=processed_total,
         failures=failures, status="completed" if failures == 0 else "completed_with_errors",
         remaining=remaining, output=output,
+        markdown_root=_creator_markdown_root(provider, handle),
+        latest_markdown_path=latest_markdown_path,
     )
     return 0 if failures == 0 else 2
 

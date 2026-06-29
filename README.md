@@ -12,7 +12,7 @@ The CLI currently supports English, Japanese, and Chinese locale presets. In cod
 - Local runtime with managed state and repeatable command workflows
 - Markdown output that is easy to archive, search, or hand to agents
 - Browser-profile-based auth reuse without storing credentials in the package
-- Queue, creator sync, processing, runtime, and health-check commands in one tool
+- Queue, creator catalog refresh, processing, runtime, and health-check commands in one tool
 - Human-friendly CLI flows plus stable surfaces for automation and agent orchestration
 
 ## What It Helps With
@@ -30,7 +30,7 @@ The automation surface is designed for agent use, and current agent-oriented sch
 
 ## Core Capabilities
 
-- Track creators and sync their catalogs across supported providers
+- Track creators and refresh their catalogs across supported providers
 - Run batch processing with configurable limits and per-type batch sizing
 - Prefer one long YouTube video per batch when long-form processing should stay isolated
 - Reuse local browser-backed auth for provider access where supported
@@ -98,7 +98,7 @@ If this is your first run, a practical sequence looks like this:
 2. Initialize the managed runtime with your preferred language and timezone.
 3. Connect and verify browser-backed auth for the provider you want to use.
 4. Add a creator or inspect a single media URL.
-5. Sync the creator catalog or process a single item immediately.
+5. Refresh the creator catalog or process a single item immediately.
 6. Check status, generated Markdown, and health diagnostics.
 
 A minimal setup might look like:
@@ -110,7 +110,7 @@ media2md auth profiles youtube --browser chrome
 media2md auth connect youtube --browser chrome --profile Default
 media2md auth verify youtube
 media2md creator add https://www.youtube.com/@creator-name --provider youtube
-media2md creator sync @creator-name --provider youtube --force-full
+media2md creator refresh-catalog @creator-name --provider youtube --force-full
 media2md creator run @creator-name --provider youtube
 ```
 
@@ -168,7 +168,7 @@ Add a creator and run a full sync:
 
 ```bash
 media2md creator add https://www.youtube.com/@creator-name --provider youtube
-media2md creator sync @creator-name --provider youtube --force-full
+media2md creator refresh-catalog @creator-name --provider youtube --force-full
 media2md creator status --provider youtube --creator @creator-name
 ```
 
@@ -205,6 +205,8 @@ media2md media list --provider tiktok
 
 Creator inputs can be either full creator URLs or provider-qualified handles. For bare handles such as `@creator-name` or `creator-name`, pass `--provider` explicitly so the CLI knows which platform to target.
 
+`media2md creator refresh-catalog` is the preferred public command name for refreshing a creator catalog. The shorter `media2md creator sync` command still exists in the full command surface.
+
 Run a deeper environment and access check:
 
 ```bash
@@ -222,7 +224,7 @@ media2md data verify-backup ~/media2md-backups/media2md-state-YYYYMMDDTHHMMSSZ.z
 
 ## Output
 
-Generated output is organized under the local runtime state. Typical Markdown paths look like:
+Generated output is organized under the local runtime state. New installs default to `~/Downloads/media2md`, and you can relocate that base path later with `media2md runtime set-base-path <path>`. Existing installs that already use an older managed location keep that location until you explicitly move them. Typical Markdown paths look like:
 
 ```text
 markdown/youtube/<creator>/videos/
@@ -239,6 +241,8 @@ Useful commands:
 
 ```bash
 media2md runtime status
+media2md runtime base-path
+media2md runtime set-base-path <path>
 media2md runtime install --force
 media2md doctor all
 ```
@@ -248,7 +252,7 @@ media2md doctor all
 The CLI is organized around a few main areas:
 
 - `auth`: browser profile discovery, connection, verification, refresh, and status
-- `creator`: add creators, sync catalogs, inspect status, set policies, and run processing
+- `creator`: add creators, refresh catalogs, inspect status, set policies, and run processing
 - `media`: inspect URLs, add media, process registered items, and list tracked entries
 - `doctor`: environment, provider, and access diagnostics
 - `data`: backup, backup verification, and destructive data operations

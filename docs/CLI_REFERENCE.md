@@ -31,7 +31,7 @@ media2md uninstall
 media2md init --language <language> --markdown-language <markdown-language> --timezone <timezone> --non-interactive
 media2md auth connect youtube --browser chrome --profile Default
 media2md creator add https://www.youtube.com/@creator-name --provider youtube
-media2md creator sync @creator-name --provider youtube --force-full
+media2md creator refresh-catalog @creator-name --provider youtube --force-full
 media2md creator run @creator-name --provider youtube
 media2md media add <media-url> --process-now
 media2md status --output ndjson
@@ -89,6 +89,7 @@ media2md creator list
 media2md creator sync-enable
 media2md creator sync-disable
 media2md creator sync
+media2md creator refresh-catalog
 media2md creator policy-set
 media2md creator policy-show
 media2md creator policy set
@@ -102,7 +103,7 @@ Typical uses:
 ```bash
 media2md creator add https://www.youtube.com/@creator-name --provider youtube
 media2md creator status --provider youtube --creator @creator-name
-media2md creator sync @creator-name --provider youtube --force-full
+media2md creator refresh-catalog @creator-name --provider youtube --force-full
 media2md creator run @creator-name --provider youtube
 ```
 
@@ -127,6 +128,7 @@ Notes:
 - Long YouTube videos are best treated as `youtube_long=1` when you want one long-form item per batch.
 - `creator run` also supports `--retry-failed`, `--allow-stale-catalog`, date filters, rank filters, and ordering.
 - Creator inputs can be full URLs or bare handles. Bare handles such as `@creator-name` or `creator-name` require `--provider`.
+- `creator refresh-catalog` is the preferred public name for refreshing a creator catalog. `creator sync` remains available as the lower-level command name.
 
 ## `media2md settings`
 

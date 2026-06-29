@@ -1,11 +1,12 @@
 from pathlib import Path
 import json, os, subprocess, sys, threading, zipfile
-from media2md.bootstrap import ensure_runtime, runtime_root, state_root
+from media2md.bootstrap import ensure_runtime, managed_base, runtime_root, state_root
 from media2md import __version__
 
 def test_version(): assert __version__=='0.9.2'
 def test_clean_runtime(monkeypatch,tmp_path):
  monkeypatch.setenv('HOME',str(tmp_path)); root=ensure_runtime(force=True)
+ assert managed_base()==tmp_path/'Downloads'/'media2md'
  assert (root/'scripts/media2md.py').is_file(); assert (root/'scripts/manage_creators.py').is_file(); assert (root/'scripts/manage_videos.py').is_file(); assert (root/'bin/media2md').is_file()
  assert (root/'config').is_symlink(); assert (root/'data').is_symlink()
  result=subprocess.run([sys.executable,str(root/'scripts/media2md.py'),'version'],cwd=root,capture_output=True,text=True)
@@ -70,3 +71,22 @@ def test_build_excludes_local_virtualenvs():
  text=(Path(__file__).parents[1]/'pyproject.toml').read_text()
  for token in ('".venv*/**"','"venv*/**"','".audit-venv/**"'):
   assert token in text
+
+def test_runtime_base_path_command(monkeypatch,tmp_path):
+ monkeypatch.setenv('HOME',str(tmp_path))
+ from media2md import cli
+ assert cli.runtime_command(['base-path'])==0
+
+def test_runtime_set_base_path_migrates_existing_managed_tree(monkeypatch,tmp_path):
+ monkeypatch.setenv('HOME',str(tmp_path))
+ from media2md import cli
+ root=ensure_runtime(force=True)
+ marker=state_root()/'markdown'/'sample.txt'
+ marker.parent.mkdir(parents=True,exist_ok=True)
+ marker.write_text('ok',encoding='utf-8')
+ target=tmp_path/'external-media2md'
+ assert cli.runtime_command(['set-base-path',str(target)])==0
+ payload=json.loads((tmp_path/'Library'/'Application Support'/'media2md-config'/'project.json').read_text())
+ assert payload['managed_base']==str(target)
+ assert (target/'state'/'markdown'/'sample.txt').read_text(encoding='utf-8')=='ok'
+ assert not root.exists()

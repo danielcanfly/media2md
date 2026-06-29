@@ -8,15 +8,47 @@ STATE_DIRS=('config','data','logs','workspace','markdown','downloads','transcrip
 LOCK_TIMEOUT_SECONDS=30.0
 LOCK_STALE_SECONDS=300.0
 
-def _data_home()->Path:
+def _default_managed_base()->Path:
+ downloads = Path.home() / 'Downloads' / 'media2md'
+ downloads.mkdir(parents=True, exist_ok=True)
+ return downloads
+
+def _legacy_data_home()->Path:
  if sys.platform=='darwin': return Path.home()/'Library'/'Application Support'/'media2md'
  if os.name=='nt': return Path(os.getenv('LOCALAPPDATA',Path.home()/'AppData'/'Local'))/'media2md'
  return Path(os.getenv('XDG_DATA_HOME',Path.home()/'.local'/'share'))/'media2md'
+
 def _config_home()->Path:
  if sys.platform=='darwin': return Path.home()/'Library'/'Application Support'/'media2md-config'
  if os.name=='nt': return Path(os.getenv('APPDATA',Path.home()/'AppData'/'Roaming'))/'media2md'
  return Path(os.getenv('XDG_CONFIG_HOME',Path.home()/'.config'))/'media2md'
-def managed_base()->Path: return _data_home()
+
+def _project_registry_path()->Path:
+ return _config_home()/'project.json'
+
+def _load_project_registry()->dict|None:
+ registry = _project_registry_path()
+ try: return json.loads(registry.read_text(encoding='utf-8'))
+ except (FileNotFoundError, json.JSONDecodeError, OSError): return None
+
+def managed_base()->Path:
+ explicit=os.getenv('MEDIA2MD_HOME')
+ if explicit:
+  path=Path(explicit).expanduser().resolve()
+  path.mkdir(parents=True,exist_ok=True)
+  return path
+ payload=_load_project_registry()
+ stored=payload.get('managed_base') if isinstance(payload,dict) else None
+ if stored:
+  path=Path(str(stored)).expanduser().resolve()
+  path.mkdir(parents=True,exist_ok=True)
+  return path
+ legacy=_legacy_data_home()
+ if legacy.exists():
+  legacy.mkdir(parents=True,exist_ok=True)
+  return legacy
+ return _default_managed_base()
+
 def state_root()->Path: return managed_base()/'state'
 def runtime_root()->Path: return managed_base()/'runtime'/VERSION
 
@@ -126,8 +158,8 @@ def ensure_runtime(force:bool=False)->Path:
    try: target.symlink_to(state/d,target_is_directory=True)
    except FileExistsError:
     if not (target.is_symlink() and target.resolve()==(state/d).resolve()): raise
-  registry=_config_home()/'project.json'; registry.parent.mkdir(parents=True,exist_ok=True)
-  registry.write_text(json.dumps({'schema_version':2,'project_root':str(root),'managed_runtime':True,'version':VERSION},indent=2)+'\n')
+  registry=_project_registry_path(); registry.parent.mkdir(parents=True,exist_ok=True)
+  registry.write_text(json.dumps({'schema_version':3,'project_root':str(root),'managed_runtime':True,'version':VERSION,'managed_base':str(managed_base())},indent=2)+'\n')
   return root
 
 def import_legacy(source:Path)->dict:
