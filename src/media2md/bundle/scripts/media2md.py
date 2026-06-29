@@ -655,6 +655,34 @@ def add_creator(args: argparse.Namespace) -> int:
 
 
 def scheduler_tick(args: argparse.Namespace) -> int:
+    try:
+        from public_cli_tail_service import build_scheduler_creator_run_namespace as build_scheduler_creator_run_namespace_service, scheduler_tick_common as scheduler_tick_common_service
+    except ModuleNotFoundError:
+        build_scheduler_creator_run_namespace_service = None
+        scheduler_tick_common_service = None
+    if scheduler_tick_common_service is not None:
+        return scheduler_tick_common_service(
+            args,
+            load_policies=load_policies,
+            load_json=load_json,
+            atomic_json=atomic_json,
+            scheduler_state_path=SCHEDULER_STATE,
+            refresh_auth=refresh_auth,
+            core=core,
+            effective_policy=effective_policy,
+            registry=registry,
+            creator_run_builder=lambda provider, creator, processing, output: build_scheduler_creator_run_namespace_service(
+                provider=provider,
+                creator=creator,
+                processing=processing,
+                output=output,
+                batch_size_type_supported=True,
+                retry_failed_supported=True,
+            ),
+            creator_run=creator_run,
+            iso_now=iso_now,
+            emit=emit,
+        )
     policies=load_policies()["creators"]; state=load_json(SCHEDULER_STATE,{"creators":{}}); now=datetime.now(timezone.utc)
     jobs=0; failures=0
     # Refresh browser-backed snapshots before unattended work.
@@ -703,6 +731,12 @@ def scheduler_tick(args: argparse.Namespace) -> int:
 
 
 def update_check(args: argparse.Namespace) -> int:
+    try:
+        from public_cli_tail_service import update_check_common as update_check_common_service
+    except ModuleNotFoundError:
+        update_check_common_service = None
+    if update_check_common_service is not None:
+        return update_check_common_service(args, repository=REPOSITORY, version=VERSION, emit=emit)
     repo=args.repository or REPOSITORY
     request=urllib.request.Request(f"https://api.github.com/repos/{repo}/releases/latest",headers={"Accept":"application/vnd.github+json","User-Agent":"media2md"})
     try:
@@ -724,6 +758,12 @@ def update_check(args: argparse.Namespace) -> int:
 
 
 def data_delete_all(args: argparse.Namespace) -> int:
+    try:
+        from public_cli_tail_service import data_delete_all_common as data_delete_all_common_service
+    except ModuleNotFoundError:
+        data_delete_all_common_service = None
+    if data_delete_all_common_service is not None:
+        return data_delete_all_common_service(args, root=ROOT)
     from media2md_runtime import maintenance_lock
 
     if not args.yes or args.confirm != "DELETE-ALL-DATA":
@@ -750,6 +790,12 @@ def data_delete_all(args: argparse.Namespace) -> int:
 
 
 def remove_openclaw_cron() -> tuple[int, list[str]]:
+    try:
+        from public_cli_tail_service import remove_openclaw_cron_common as remove_openclaw_cron_common_service
+    except ModuleNotFoundError:
+        remove_openclaw_cron_common_service = None
+    if remove_openclaw_cron_common_service is not None:
+        return remove_openclaw_cron_common_service()
     executable = shutil.which("openclaw")
     if not executable:
         return 0, []
@@ -777,6 +823,17 @@ def remove_openclaw_cron() -> tuple[int, list[str]]:
 
 
 def uninstall(args: argparse.Namespace) -> int:
+    try:
+        from public_cli_tail_service import uninstall_common as uninstall_common_service
+    except ModuleNotFoundError:
+        uninstall_common_service = None
+    if uninstall_common_service is not None:
+        return uninstall_common_service(
+            args,
+            data_delete_all=data_delete_all,
+            remove_openclaw_cron=remove_openclaw_cron,
+            run=run,
+        )
     if args.purge_data:
         data_delete_all(argparse.Namespace(yes=args.yes, confirm=args.confirm))
     _, removed_jobs = remove_openclaw_cron()
