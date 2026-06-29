@@ -112,6 +112,34 @@ def creator_run_instagram(
     return code
 
 
+def creator_run_context(
+    args,
+    *,
+    provider: str,
+    creator: str,
+    policy: dict[str, Any],
+    parse_batch_size_assignments: Callable[[Any], dict[str, int]] | None,
+    normalize_batch_sizes: Callable[[Any], dict[str, int]] | None,
+    typed_batch_sizes_supported: bool,
+) -> dict[str, Any]:
+    mode = args.mode or policy["processing"]["mode"]
+    batch_size, batch_sizes = merge_batch_sizes(
+        args=args,
+        processing=policy["processing"],
+        parse_batch_size_assignments=parse_batch_size_assignments,
+        normalize_batch_sizes=normalize_batch_sizes,
+        typed_batch_sizes_supported=typed_batch_sizes_supported,
+    )
+    return {
+        "provider": provider,
+        "creator": creator,
+        "policy": policy,
+        "mode": mode,
+        "batch_size": batch_size,
+        "batch_sizes": batch_sizes,
+    }
+
+
 def merge_batch_sizes(
     *,
     args,
@@ -132,6 +160,41 @@ def merge_batch_sizes(
     else:
         batch_sizes.update(typed_assignments)
     return batch_size, batch_sizes
+
+
+def creator_run_catalog_preflight(
+    *,
+    args,
+    provider: str,
+    creator: str,
+    policy: dict[str, Any],
+    registry_rows: list[dict[str, Any]],
+    prepare_catalog_for_creator_run: Callable[..., int],
+    registry_call: Callable[[list[str]], int],
+    emit_call: Callable[[dict[str, Any], str], None],
+) -> tuple[dict[str, Any] | None, int | None]:
+    existing_row = resolve_existing_row(registry_rows, provider, creator)
+    sync_code = prepare_catalog_for_creator_run(
+        provider=provider,
+        creator_arg=args.creator,
+        normalized_creator=creator,
+        existing_row=existing_row,
+        quick_window=int(policy["sync"]["quick_window"]),
+        output=args.output,
+        registry_call=registry_call,
+        emit_call=emit_call,
+    )
+    if sync_code == 0:
+        return existing_row, None
+    outcome = emit_sync_warning_or_fail(
+        args=args,
+        provider=provider,
+        creator=creator,
+        sync_code=sync_code,
+        existing_row=existing_row,
+        emit=emit_call,
+    )
+    return existing_row, outcome
 
 
 def creator_run_registry_command(

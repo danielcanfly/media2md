@@ -480,34 +480,37 @@ def creator_sync(args: argparse.Namespace) -> int:
 
 def creator_run(args: argparse.Namespace) -> int:
     (
+        creator_run_context_service,
+        creator_run_catalog_preflight_service,
         creator_run_instagram_service,
         creator_run_registry_command_service,
-        emit_sync_warning_or_fail_service,
-        merge_batch_sizes_service,
-        resolve_existing_row_service,
     ) = optional_attrs(
         "public_cli_creator_service",
+        "creator_run_context",
+        "creator_run_catalog_preflight",
         "creator_run_instagram",
         "creator_run_registry_command",
-        "emit_sync_warning_or_fail",
-        "merge_batch_sizes",
-        "resolve_existing_row",
     )
     provider=resolve_creator_provider(args.creator, args.provider, command_name="creator run")
     refresh_auth(provider)
     creator=normalize_creator(provider,args.creator)
     policy=effective_policy(provider,creator)
-    mode=args.mode or policy["processing"]["mode"]
-    batch_size=args.batch_size or policy["processing"]["batch_size"]
-    if merge_batch_sizes_service is not None:
-        batch_size, batch_sizes = merge_batch_sizes_service(
+    if creator_run_context_service is not None:
+        run_ctx = creator_run_context_service(
             args=args,
-            processing=policy["processing"],
+            provider=provider,
+            creator=creator,
+            policy=policy,
             parse_batch_size_assignments=parse_batch_size_assignments,
             normalize_batch_sizes=normalize_batch_sizes,
             typed_batch_sizes_supported=True,
         )
+        mode = run_ctx["mode"]
+        batch_size = run_ctx["batch_size"]
+        batch_sizes = run_ctx["batch_sizes"]
     else:
+        mode=args.mode or policy["processing"]["mode"]
+        batch_size=args.batch_size or policy["processing"]["batch_size"]
         typed_assignments = parse_batch_size_assignments(getattr(args, "batch_size_type", None))
         batch_sizes = normalize_batch_sizes(policy["processing"].get("batch_sizes"))
         if args.batch_size is not None and not typed_assignments:
@@ -537,30 +540,32 @@ def creator_run(args: argparse.Namespace) -> int:
     # Use the shared pre-run catalog decision so every public CLI surface
     # follows the same partial-cursor behavior.
     current_rows = registry_rows()
-    existing_row = resolve_existing_row_service(current_rows, provider, creator) if resolve_existing_row_service is not None else next((r for r in current_rows if r["provider"]==provider and r["handle"].lower()==creator.lower()), None)
-    sync_code = prepare_catalog_for_creator_run(
-        provider=provider,
-        creator_arg=args.creator,
-        normalized_creator=creator,
-        existing_row=existing_row,
-        quick_window=int(policy["sync"]["quick_window"]),
-        output=args.output,
-        registry_call=registry,
-        emit_call=emit,
-    )
-    if sync_code != 0:
-        if emit_sync_warning_or_fail_service is not None:
-            outcome = emit_sync_warning_or_fail_service(
-                args=args,
-                provider=provider,
-                creator=creator,
-                sync_code=sync_code,
-                existing_row=existing_row,
-                emit=emit,
-            )
-            if outcome is not None:
-                return outcome
-        else:
+    if creator_run_catalog_preflight_service is not None:
+        existing_row, outcome = creator_run_catalog_preflight_service(
+            args=args,
+            provider=provider,
+            creator=creator,
+            policy=policy,
+            registry_rows=current_rows,
+            prepare_catalog_for_creator_run=prepare_catalog_for_creator_run,
+            registry_call=registry,
+            emit_call=emit,
+        )
+        if outcome is not None:
+            return outcome
+    else:
+        existing_row = next((r for r in current_rows if r["provider"]==provider and r["handle"].lower()==creator.lower()), None)
+        sync_code = prepare_catalog_for_creator_run(
+            provider=provider,
+            creator_arg=args.creator,
+            normalized_creator=creator,
+            existing_row=existing_row,
+            quick_window=int(policy["sync"]["quick_window"]),
+            output=args.output,
+            registry_call=registry,
+            emit_call=emit,
+        )
+        if sync_code != 0:
             can_use_stale = bool(args.allow_stale_catalog and existing_row and int(existing_row.get("tracked") or 0) > 0)
             if not can_use_stale:
                 if args.output=="human": print(f"SYNC_FAILED provider={provider} creator={creator}; batch_not_started=true",file=sys.stderr)

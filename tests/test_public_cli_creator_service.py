@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from media2md.bundle.scripts.public_cli_creator_service import (
+    creator_run_catalog_preflight,
+    creator_run_context,
     creator_policy_payload,
     creator_run_registry_command,
     merge_batch_sizes,
@@ -139,3 +141,44 @@ def test_creator_run_registry_command_can_skip_typed_batch_sizes():
         include_typed_batch_sizes=False,
     )
     assert "--batch-sizes-json" not in cmd
+
+
+def test_creator_run_context_computes_mode_and_batch_sizes():
+    args = _Args(mode=None, batch_size=1, batch_size_type=["youtube_long=2"])
+    policy = {
+        "sync": {"quick_window": 100},
+        "processing": {
+            "mode": "batch",
+            "batch_size": 100,
+            "batch_sizes": {"youtube_long": 1, "youtube_short": 30},
+        },
+    }
+    context = creator_run_context(
+        args,
+        provider="youtube",
+        creator="creator-name",
+        policy=policy,
+        parse_batch_size_assignments=lambda values: {"youtube_long": 2} if values else {},
+        normalize_batch_sizes=lambda values: dict(values or {}),
+        typed_batch_sizes_supported=True,
+    )
+    assert context["mode"] == "batch"
+    assert context["batch_size"] == 1
+    assert context["batch_sizes"] == {"youtube_long": 2, "youtube_short": 30}
+
+
+def test_creator_run_catalog_preflight_returns_existing_row_on_success():
+    args = _Args(creator="@acta.so", output="ndjson")
+    rows = [{"provider": "tiktok", "handle": "acta.so", "tracked": 3, "last_sync_at": "2026-06-30T00:00:00+00:00"}]
+    existing_row, outcome = creator_run_catalog_preflight(
+        args=args,
+        provider="tiktok",
+        creator="acta.so",
+        policy={"sync": {"quick_window": 100}},
+        registry_rows=rows,
+        prepare_catalog_for_creator_run=lambda **kwargs: 0,
+        registry_call=lambda cmd: 0,
+        emit_call=lambda payload, output: None,
+    )
+    assert existing_row == rows[0]
+    assert outcome is None
