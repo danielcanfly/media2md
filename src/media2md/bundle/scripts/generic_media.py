@@ -1263,6 +1263,35 @@ def _split_audio(media: Path, chunks_dir: Path, chunk_seconds: int, duration: fl
     return chunks, False
 
 
+def _extract_audio_track(media: Path, work: Path, artifact_stem: str) -> Path:
+    target = work / f"{artifact_stem}.m4a"
+    try:
+        run([
+            command("ffmpeg"), "-v", "error", "-y", "-i", str(media),
+            "-vn", "-acodec", "aac", str(target),
+        ], timeout=1800)
+    except Exception as exc:
+        text = "\n".join(
+            part for part in (
+                getattr(exc, "stderr", None),
+                getattr(exc, "stdout", None),
+                getattr(exc, "root_cause", None),
+                str(exc),
+            ) if part
+        ).lower()
+        if (
+            "does not contain any stream" in text
+            or "does not contain an audio stream" in text
+            or "output file does not contain any stream" in text
+            or "stream map" in text
+        ):
+            raise RuntimeError("Media file does not contain an audio stream.") from exc
+        raise
+    if not target.is_file() or target.stat().st_size <= 0:
+        raise RuntimeError("FFmpeg did not create an extracted audio track.")
+    return target
+
+
 def _whisper_command(media: Path, output_dir: Path, output_name: str, model: str) -> list[str]:
     # Use the --option=value form so argparse can never reinterpret a leading
     # dash in a platform ID as a new option. output_name is safe regardless.
@@ -1382,6 +1411,7 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Path:
     processed_duration = float(row["duration_seconds"] or 0)
     resumed_from_checkpoint = False
     succeeded = False
+    no_audio_stream = False
     try:
         text: str | None = None
         if provider == "youtube":
@@ -1416,15 +1446,31 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Path:
                         )
                     else:
                         provider_auth_args = auth_args(provider)
-                        run([
-                            command("yt-dlp"), *ytdlp_args, *provider_auth_args, "--no-playlist", "--no-progress",
-                            "--retries", "5", "--socket-timeout", "120", "-f", "ba/b", "-x",
-                            "--audio-format", "m4a", "-o", template, canonical_source
-                        ], timeout=1800)
+                        if provider == "instagram":
+                            run([
+                                command("yt-dlp"), *ytdlp_args, *provider_auth_args, "--no-playlist", "--no-progress",
+                                "--retries", "5", "--socket-timeout", "120", "-f", "bv*+ba/b",
+                                "-o", template, canonical_source
+                            ], timeout=1800)
+                        else:
+                            run([
+                                command("yt-dlp"), *ytdlp_args, *provider_auth_args, "--no-playlist", "--no-progress",
+                                "--retries", "5", "--socket-timeout", "120", "-f", "ba/b", "-x",
+                                "--audio-format", "m4a", "-o", template, canonical_source
+                            ], timeout=1800)
                         files = _audio_candidates(work)
                         if not files:
                             raise RuntimeError("yt-dlp completed but no media file was created.")
                         media = max(files, key=lambda path: path.stat().st_size)
+                        if provider == "instagram":
+                            try:
+                                media = _extract_audio_track(media, work, artifact_stem)
+                            except RuntimeError as exc:
+                                if "does not contain an audio stream" in str(exc).lower():
+                                    no_audio_stream = True
+                                    media = media
+                                else:
+                                    raise
                         audio_download_strategy = "yt-dlp-default"
                         audio_used_auth = bool(provider_auth_args)
                         audio_attempts.append({
@@ -1449,28 +1495,35 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Path:
 
             conn.execute("UPDATE media SET status='transcribing', updated_at=? WHERE id=?", (iso_now(), row["id"]))
             conn.commit()
-            try:
-                result = transcribe_audio(media, transcript_dir, external_id, row["duration_seconds"])
-                text = str(result["text"])
-                transcription_source = str(result["source"])
-                transcription_model = str(result["model"])
-                processed_duration = float(result["duration_seconds"])
-                chunk_count = int(result["chunk_count"])
-                chunk_seconds_used = result["chunk_seconds"]
-                resumed_from_checkpoint = bool(resumed_from_checkpoint or result.get("resumed_from_checkpoint"))
-            except KeyboardInterrupt:
-                raise
-            except Exception as exc:
-                classification = classify_transcription_exception(exc)
-                raise StageError(
-                    "transcribe", str(exc),
-                    retryable=bool(classification["retryable"]),
-                    error_code=str(classification["error_code"]),
-                    action_required=bool(classification["action_required"]),
-                    required_action=classification.get("required_action"),
-                    root_cause=str(classification.get("root_cause") or str(exc)),
-                    log_path=classification.get("log_path"),
-                ) from exc
+            if no_audio_stream:
+                text = ""
+                transcription_source = "no_audio_stream"
+                transcription_model = None
+                chunk_count = 0
+                chunk_seconds_used = None
+            else:
+                try:
+                    result = transcribe_audio(media, transcript_dir, external_id, row["duration_seconds"])
+                    text = str(result["text"])
+                    transcription_source = str(result["source"])
+                    transcription_model = str(result["model"])
+                    processed_duration = float(result["duration_seconds"])
+                    chunk_count = int(result["chunk_count"])
+                    chunk_seconds_used = result["chunk_seconds"]
+                    resumed_from_checkpoint = bool(resumed_from_checkpoint or result.get("resumed_from_checkpoint"))
+                except KeyboardInterrupt:
+                    raise
+                except Exception as exc:
+                    classification = classify_transcription_exception(exc)
+                    raise StageError(
+                        "transcribe", str(exc),
+                        retryable=bool(classification["retryable"]),
+                        error_code=str(classification["error_code"]),
+                        action_required=bool(classification["action_required"]),
+                        required_action=classification.get("required_action"),
+                        root_cause=str(classification.get("root_cause") or str(exc)),
+                        log_path=classification.get("log_path"),
+                    ) from exc
 
         item_class = processing_class(media_type, processed_duration, long_threshold_seconds=threshold)
         try:

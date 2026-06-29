@@ -116,6 +116,122 @@ def test_instagram_inspect_reports_access_guidance_when_both_backends_fail(monke
     assert "rejected" in message.lower()
 
 
+def test_instagram_process_downloads_video_then_extracts_audio(tmp_path, monkeypatch):
+    import generic_media as media
+
+    monkeypatch.setattr(media, "DB", tmp_path / "media.db")
+    monkeypatch.setattr(media, "REGISTRY_DB", tmp_path / "registry.db")
+    monkeypatch.setattr(media, "ROOT", tmp_path)
+    monkeypatch.setattr(media, "DOWNLOADS", tmp_path / "downloads")
+    monkeypatch.setattr(media, "TRANSCRIPTS", tmp_path / "transcripts")
+    monkeypatch.setattr(media, "MARKDOWN", tmp_path / "markdown")
+    monkeypatch.setattr(media, "CONFIG", tmp_path / "config.json")
+    (tmp_path / "config.json").write_text("{}", encoding="utf-8")
+    media.DOWNLOADS.mkdir(parents=True, exist_ok=True)
+    media.TRANSCRIPTS.mkdir(parents=True, exist_ok=True)
+    media.MARKDOWN.mkdir(parents=True, exist_ok=True)
+
+    conn = media.connect()
+    now = media.iso_now()
+    conn.execute(
+        """INSERT INTO media(provider,external_id,creator,title,description,source_url,published_at,duration_seconds,media_type,processing_class,status,created_at,updated_at)
+           VALUES('instagram','DZ95irCT4Bn','prime.brains','t','','https://www.instagram.com/reel/DZ95irCT4Bn/','2026-06-24',47,'instagram_reel','instagram_reel','pending',?,?)""",
+        (now, now),
+    )
+    row = conn.execute("SELECT * FROM media WHERE external_id='DZ95irCT4Bn'").fetchone()
+
+    monkeypatch.setattr(media, "auth_args", lambda provider: ["--cookies", "cookie.txt"] if provider == "instagram" else [])
+    monkeypatch.setattr(media, "canonical_media_source", lambda *a, **k: "https://www.instagram.com/reel/DZ95irCT4Bn/")
+    monkeypatch.setattr(media, "sync_registry", lambda *a, **k: None)
+    monkeypatch.setattr(media, "command", lambda name: name)
+
+    commands: list[list[str]] = []
+
+    def fake_run(command, timeout=None, **kwargs):
+        commands.append(list(command))
+        if command[0] == "yt-dlp":
+            work = media.DOWNLOADS / "instagram" / "prime.brains" / "DZ95irCT4Bn"
+            work.mkdir(parents=True, exist_ok=True)
+            (work / "DZ95irCT4Bn.mp4").write_bytes(b"video")
+            return argparse.Namespace(stdout="", stderr="")
+        if command[0] == "ffmpeg" and "-vn" in command:
+            target = Path(command[-1])
+            target.write_bytes(b"audio")
+            return argparse.Namespace(stdout="", stderr="")
+        return argparse.Namespace(stdout="", stderr="")
+
+    monkeypatch.setattr(media, "run", fake_run)
+    monkeypatch.setattr(media, "transcribe_audio", lambda *a, **k: {
+        "text": "hello",
+        "source": "local_whisper",
+        "model": "m",
+        "duration_seconds": 47.0,
+        "chunk_count": 1,
+        "chunk_seconds": None,
+        "resumed_from_checkpoint": False,
+    })
+
+    final = media.process_row(conn, row)
+    conn.close()
+
+    assert final.is_file()
+    ytdlp = next(cmd for cmd in commands if cmd[0] == "yt-dlp")
+    assert "-x" not in ytdlp
+    assert "bv*+ba/b" in ytdlp
+    ffmpeg = next(cmd for cmd in commands if cmd[0] == "ffmpeg" and "-vn" in cmd)
+    assert ffmpeg[-1].endswith(".m4a")
+
+
+def test_instagram_process_without_audio_stream_still_completes(tmp_path, monkeypatch):
+    import generic_media as media
+
+    monkeypatch.setattr(media, "ROOT", tmp_path)
+    monkeypatch.setattr(media, "DB", tmp_path / "media.db")
+    monkeypatch.setattr(media, "REGISTRY_DB", tmp_path / "registry.db")
+    monkeypatch.setattr(media, "DOWNLOADS", tmp_path / "downloads")
+    monkeypatch.setattr(media, "TRANSCRIPTS", tmp_path / "transcripts")
+    monkeypatch.setattr(media, "MARKDOWN", tmp_path / "markdown")
+    monkeypatch.setattr(media, "CONFIG", tmp_path / "config.json")
+    (tmp_path / "config.json").write_text("{}", encoding="utf-8")
+    media.DOWNLOADS.mkdir(parents=True, exist_ok=True)
+    media.TRANSCRIPTS.mkdir(parents=True, exist_ok=True)
+    media.MARKDOWN.mkdir(parents=True, exist_ok=True)
+
+    conn = media.connect()
+    now = media.iso_now()
+    conn.execute(
+        """INSERT INTO media(provider,external_id,creator,title,description,source_url,published_at,duration_seconds,media_type,processing_class,status,created_at,updated_at)
+           VALUES('instagram','DZ95irCT4Bn','prime.brains','t','','https://www.instagram.com/reel/DZ95irCT4Bn/','2026-06-24',47,'instagram_reel','instagram_reel','pending',?,?)""",
+        (now, now),
+    )
+    row = conn.execute("SELECT * FROM media WHERE external_id='DZ95irCT4Bn'").fetchone()
+
+    monkeypatch.setattr(media, "auth_args", lambda provider: ["--cookies", "cookie.txt"] if provider == "instagram" else [])
+    monkeypatch.setattr(media, "canonical_media_source", lambda *a, **k: "https://www.instagram.com/reel/DZ95irCT4Bn/")
+    monkeypatch.setattr(media, "sync_registry", lambda *a, **k: None)
+    monkeypatch.setattr(media, "command", lambda name: name)
+
+    def fake_run(command, timeout=None, **kwargs):
+        if command[0] == "yt-dlp":
+            work = media.DOWNLOADS / "instagram" / "prime.brains" / "DZ95irCT4Bn"
+            work.mkdir(parents=True, exist_ok=True)
+            (work / "DZ95irCT4Bn.mp4").write_bytes(b"video")
+            return argparse.Namespace(stdout="", stderr="")
+        if command[0] == "ffmpeg" and "-vn" in command:
+            raise RuntimeError("Output file does not contain any stream")
+        return argparse.Namespace(stdout="", stderr="")
+
+    monkeypatch.setattr(media, "run", fake_run)
+
+    final = media.process_row(conn, row)
+    saved = final.read_text(encoding="utf-8")
+    conn.close()
+
+    assert final.is_file()
+    assert 'transcription_source: "no_audio_stream"' in saved
+    assert "_No speech detected._" in saved
+
+
 def test_youtube_shorts_only_channel_treats_missing_videos_as_empty_exact(tmp_path, monkeypatch):
     import media2md_registry as registry
 
