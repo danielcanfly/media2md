@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.3 - 2026-06-29
+
+- Add `creator refresh-catalog` as the preferred public command name for refreshing creator catalogs while keeping `creator sync` available in the full command surface.
+- Improve `creator run` operator feedback with a pip-style single-line stage progress display, plus clearer completion output including the result folder, latest markdown path, and a Finder-friendly open hint.
+- Change fresh managed-runtime installs to default under `~/Downloads/media2md`, while preserving older managed locations until explicitly relocated.
+- Add `media2md runtime base-path` and `media2md runtime set-base-path <path>`, and make base-path changes migrate the managed tree instead of only updating metadata.
+- Make `media2md uninstall` remove the installed Python package by default, with `--dry-run` available for preview-only behavior.
+- Fix creator-run progress-loop compatibility for mocked process objects and relax the historical v0.9.1 installer regression so it validates preserved installer artifacts without pinning the active package version.
+
 ## 0.9.2 - 2026-06-29
 
 - Update the public README and CLI reference so installation, authentication, and creator workflows match the published PyPI package and current CLI behavior.
