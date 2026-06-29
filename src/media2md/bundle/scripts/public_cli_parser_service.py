@@ -154,3 +154,180 @@ def add_common_uninstall_command(subparsers, *, uninstall) -> None:
     uninstallp.add_argument("--confirm")
     uninstallp.add_argument("--dry-run", action="store_true")
     uninstallp.set_defaults(func=uninstall)
+
+
+def _add_creator_policy_arguments(parser, *, parse_duration, include_typed_batch_sizes: bool, default_provider: str | None) -> None:
+    parser.add_argument("creator")
+    if default_provider is None:
+        parser.add_argument("--provider", choices=("instagram", "youtube", "tiktok"))
+    else:
+        parser.add_argument("--provider", choices=("instagram", "youtube", "tiktok"), default=default_provider)
+    parser.add_argument("--every", type=parse_duration)
+    parser.add_argument("--full-every", type=parse_duration)
+    parser.add_argument("--quick-window", type=int)
+    parser.add_argument("--mode", choices=("batch", "drain"))
+    parser.add_argument("--batch-size", type=int)
+    if include_typed_batch_sizes:
+        parser.add_argument("--batch-size-type", action="append", default=[])
+    parser.add_argument("--max-batches", type=int)
+    parser.add_argument("--max-runtime-minutes", type=int)
+    parser.add_argument("--max-failures", type=int)
+    parser.add_argument("--stop-on-failure", action=argparse.BooleanOptionalAction)
+    parser.add_argument("--sleep-between-batches", type=int)
+    parser.add_argument("--scheduled-processing", action=argparse.BooleanOptionalAction)
+    parser.add_argument("--processing-every", type=parse_duration)
+    parser.add_argument("--since")
+    parser.add_argument("--until")
+    parser.add_argument("--rank-from", type=int)
+    parser.add_argument("--rank-to", type=int)
+    parser.add_argument("--order", choices=("newest_first", "oldest_first"))
+
+
+def _add_creator_run_arguments(parser, *, include_typed_batch_sizes: bool, include_retry_failed: bool) -> None:
+    parser.add_argument("creator")
+    parser.add_argument("--provider", choices=("instagram", "youtube", "tiktok"))
+    parser.add_argument("--mode", choices=("batch", "drain"))
+    parser.add_argument("--batch-size", type=int)
+    if include_typed_batch_sizes:
+        parser.add_argument("--batch-size-type", action="append", default=[])
+    parser.add_argument("--max-batches", type=int)
+    parser.add_argument("--max-runtime-minutes", type=int)
+    parser.add_argument("--max-failures", type=int)
+    parser.add_argument("--stop-on-failure", action="store_true")
+    if include_retry_failed:
+        parser.add_argument("--retry-failed", action="store_true", help="Requeue retry_wait/failed Instagram items for this run.")
+    parser.add_argument("--sleep-between-batches", type=int)
+    parser.add_argument("--since")
+    parser.add_argument("--until")
+    parser.add_argument("--rank-from", type=int)
+    parser.add_argument("--rank-to", type=int)
+    parser.add_argument("--order", choices=("newest_first", "oldest_first"))
+    parser.add_argument("--allow-stale-catalog", action="store_true", help="Continue with the last saved catalog when sync fails. This is an explicit authorization.")
+    parser.add_argument("--output", choices=("human", "ndjson"), default="human")
+
+
+def add_common_creator_commands(
+    creator_parser,
+    *,
+    providers: tuple[str, ...],
+    parse_duration,
+    creator_status,
+    creator_sync,
+    creator_run,
+    policy_show,
+    set_policy,
+    add_creator,
+    registry,
+    resolve_creator_provider=None,
+    strict_provider_resolution: bool,
+    include_refresh_catalog: bool,
+    include_typed_batch_sizes: bool,
+    include_retry_failed: bool,
+    default_provider_for_bare_handles: str | None,
+) -> None:
+    del providers
+    cs = creator_parser.add_subparsers(dest="creator_command", required=True)
+
+    add = cs.add_parser("add")
+    add.add_argument("creator")
+    if default_provider_for_bare_handles is None:
+        add.add_argument("--provider", choices=("instagram", "youtube", "tiktok"))
+    else:
+        add.add_argument("--provider", choices=("instagram", "youtube", "tiktok"), default=default_provider_for_bare_handles)
+    if strict_provider_resolution and resolve_creator_provider is not None:
+        add.set_defaults(func=lambda a: (setattr(a, "provider", resolve_creator_provider(a.creator, a.provider, command_name="creator add")) or add_creator(a)))
+    else:
+        add.set_defaults(func=add_creator)
+
+    stat = cs.add_parser("status")
+    stat.add_argument("--provider", choices=("instagram", "youtube", "tiktok"))
+    stat.add_argument("--creator")
+    stat.add_argument("--output", choices=("human", "ndjson"), default="human")
+    stat.set_defaults(func=creator_status)
+
+    listing = cs.add_parser("list")
+    listing.add_argument("--provider", choices=("instagram", "youtube", "tiktok"))
+    listing.add_argument("--creator")
+    listing.add_argument("--output", choices=("human", "ndjson"), default="human")
+    listing.set_defaults(func=creator_status)
+
+    for name, enabled in (("sync-enable", True), ("sync-disable", False)):
+        command = cs.add_parser(name)
+        command.add_argument("creator")
+        if default_provider_for_bare_handles is None:
+            command.add_argument("--provider", choices=("instagram", "youtube", "tiktok"))
+        else:
+            command.add_argument("--provider", choices=("instagram", "youtube", "tiktok"), default=default_provider_for_bare_handles)
+        command.add_argument("--every", type=parse_duration)
+        command.add_argument("--full-every", type=parse_duration)
+        command.add_argument("--quick-window", type=int)
+        if strict_provider_resolution and resolve_creator_provider is not None:
+            command.set_defaults(func=lambda a, e=enabled, n=name: (setattr(a, "provider", resolve_creator_provider(a.creator, a.provider, command_name=f"creator {n}")) or set_policy(a, e)))
+        else:
+            command.set_defaults(func=lambda a, e=enabled: set_policy(a, e))
+
+    sync = cs.add_parser("sync")
+    sync.add_argument("creator")
+    sync.add_argument("--provider", choices=("instagram", "youtube", "tiktok"))
+    sync.add_argument("--force-full", action="store_true")
+    sync.set_defaults(func=creator_sync)
+
+    if include_refresh_catalog:
+        refresh = cs.add_parser("refresh-catalog")
+        refresh.add_argument("creator")
+        refresh.add_argument("--provider", choices=("instagram", "youtube", "tiktok"))
+        refresh.add_argument("--force-full", action="store_true")
+        refresh.set_defaults(func=creator_sync)
+
+    policy = cs.add_parser("policy-set")
+    _add_creator_policy_arguments(
+        policy,
+        parse_duration=parse_duration,
+        include_typed_batch_sizes=include_typed_batch_sizes,
+        default_provider=default_provider_for_bare_handles,
+    )
+    if strict_provider_resolution and resolve_creator_provider is not None:
+        policy.set_defaults(func=lambda a: (setattr(a, "provider", resolve_creator_provider(a.creator, a.provider, command_name="creator policy-set")) or set_policy(a)))
+    else:
+        policy.set_defaults(func=set_policy)
+
+    pshow = cs.add_parser("policy-show")
+    pshow.add_argument("creator")
+    pshow.add_argument("--provider", choices=("instagram", "youtube", "tiktok"))
+    pshow.add_argument("--output", choices=("human", "ndjson"), default="human")
+    pshow.set_defaults(func=policy_show)
+
+    pgroup = cs.add_parser("policy")
+    psub = pgroup.add_subparsers(dest="policy_command", required=True)
+
+    pset = psub.add_parser("set")
+    _add_creator_policy_arguments(
+        pset,
+        parse_duration=parse_duration,
+        include_typed_batch_sizes=include_typed_batch_sizes,
+        default_provider=default_provider_for_bare_handles,
+    )
+    if strict_provider_resolution and resolve_creator_provider is not None:
+        pset.set_defaults(func=lambda a: (setattr(a, "provider", resolve_creator_provider(a.creator, a.provider, command_name="creator policy set")) or set_policy(a)))
+    else:
+        pset.set_defaults(func=set_policy)
+
+    pshow2 = psub.add_parser("show")
+    pshow2.add_argument("creator")
+    pshow2.add_argument("--provider", choices=("instagram", "youtube", "tiktok"))
+    pshow2.add_argument("--output", choices=("human", "ndjson"), default="human")
+    pshow2.set_defaults(func=policy_show)
+
+    runp = cs.add_parser("run")
+    _add_creator_run_arguments(
+        runp,
+        include_typed_batch_sizes=include_typed_batch_sizes,
+        include_retry_failed=include_retry_failed,
+    )
+    runp.set_defaults(func=creator_run)
+
+    delete = cs.add_parser("delete")
+    delete.add_argument("creator")
+    delete.add_argument("--provider", choices=("instagram", "youtube", "tiktok"), required=True)
+    delete.add_argument("--yes", action="store_true")
+    delete.set_defaults(func=lambda a: registry(["delete-creator", a.provider, a.creator] + (["--yes"] if a.yes else [])))

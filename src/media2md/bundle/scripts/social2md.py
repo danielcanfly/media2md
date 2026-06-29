@@ -894,13 +894,14 @@ def maybe_check_update(args: argparse.Namespace) -> None:
 def parser() -> argparse.ArgumentParser:
     p=argparse.ArgumentParser(prog="media2md")
     sub=p.add_subparsers(dest="command",required=True)
-    add_common_top_level_commands_service, add_common_update_commands_service, add_common_repair_commands_service, add_common_data_commands_service, add_common_uninstall_command_service = optional_attrs(
+    add_common_top_level_commands_service, add_common_update_commands_service, add_common_repair_commands_service, add_common_data_commands_service, add_common_uninstall_command_service, add_common_creator_commands_service = optional_attrs(
         "public_cli_parser_service",
         "add_common_top_level_commands",
         "add_common_update_commands",
         "add_common_repair_commands",
         "add_common_data_commands",
         "add_common_uninstall_command",
+        "add_common_creator_commands",
     )
     if add_common_top_level_commands_service is not None:
         add_common_top_level_commands_service(
@@ -932,20 +933,41 @@ def parser() -> argparse.ArgumentParser:
         providers=sub.add_parser("providers"); providers.add_argument("args",nargs=argparse.REMAINDER); providers.set_defaults(func=lambda a:core(["providers",*a.args]))
         authp=sub.add_parser("auth"); authp.add_argument("args",nargs=argparse.REMAINDER); authp.set_defaults(func=lambda a:auth(a.args))
         media=sub.add_parser("media"); media.add_argument("args",nargs=argparse.REMAINDER); media.set_defaults(func=lambda a:generic(a.args))
-    creator=sub.add_parser("creator"); cs=creator.add_subparsers(dest="creator_command",required=True)
-    add=cs.add_parser("add"); add.add_argument("creator"); add.add_argument("--provider",choices=PROVIDERS,default="instagram"); add.set_defaults(func=add_creator)
-    stat=cs.add_parser("status"); stat.add_argument("--provider",choices=PROVIDERS); stat.add_argument("--creator"); stat.add_argument("--output",choices=("human","ndjson"),default="human"); stat.set_defaults(func=creator_status)
-    listing=cs.add_parser("list"); listing.add_argument("--provider",choices=PROVIDERS); listing.add_argument("--creator"); listing.add_argument("--output",choices=("human","ndjson"),default="human"); listing.set_defaults(func=creator_status)
-    for name,enabled in (("sync-enable",True),("sync-disable",False)):
-        c=cs.add_parser(name); c.add_argument("creator"); c.add_argument("--provider",choices=PROVIDERS,default="instagram"); c.add_argument("--every",type=parse_duration); c.add_argument("--full-every",type=parse_duration); c.add_argument("--quick-window",type=int); c.set_defaults(func=lambda a,e=enabled:set_policy(a,e))
-    sync=cs.add_parser("sync"); sync.add_argument("creator"); sync.add_argument("--provider",choices=PROVIDERS); sync.add_argument("--force-full",action="store_true"); sync.set_defaults(func=creator_sync)
-    policy=cs.add_parser("policy-set"); policy.add_argument("creator"); policy.add_argument("--provider",choices=PROVIDERS,default="instagram"); policy.add_argument("--every",type=parse_duration); policy.add_argument("--full-every",type=parse_duration); policy.add_argument("--quick-window",type=int); policy.add_argument("--mode",choices=("batch","drain")); policy.add_argument("--batch-size",type=int); policy.add_argument("--max-batches",type=int); policy.add_argument("--max-runtime-minutes",type=int); policy.add_argument("--max-failures",type=int); policy.add_argument("--stop-on-failure",action=argparse.BooleanOptionalAction); policy.add_argument("--sleep-between-batches",type=int); policy.add_argument("--scheduled-processing",action=argparse.BooleanOptionalAction); policy.add_argument("--processing-every",type=parse_duration); policy.add_argument("--since"); policy.add_argument("--until"); policy.add_argument("--rank-from",type=int); policy.add_argument("--rank-to",type=int); policy.add_argument("--order",choices=("newest_first","oldest_first")); policy.set_defaults(func=set_policy)
-    pshow=cs.add_parser("policy-show"); pshow.add_argument("creator"); pshow.add_argument("--provider",choices=PROVIDERS); pshow.add_argument("--output",choices=("human","ndjson"),default="human"); pshow.set_defaults(func=policy_show)
-    pgroup=cs.add_parser("policy"); psub=pgroup.add_subparsers(dest="policy_command",required=True)
-    pset=psub.add_parser("set"); pset.add_argument("creator"); pset.add_argument("--provider",choices=PROVIDERS,default="instagram"); pset.add_argument("--every",type=parse_duration); pset.add_argument("--full-every",type=parse_duration); pset.add_argument("--quick-window",type=int); pset.add_argument("--mode",choices=("batch","drain")); pset.add_argument("--batch-size",type=int); pset.add_argument("--max-batches",type=int); pset.add_argument("--max-runtime-minutes",type=int); pset.add_argument("--max-failures",type=int); pset.add_argument("--stop-on-failure",action=argparse.BooleanOptionalAction); pset.add_argument("--sleep-between-batches",type=int); pset.add_argument("--scheduled-processing",action=argparse.BooleanOptionalAction); pset.add_argument("--processing-every",type=parse_duration); pset.add_argument("--since"); pset.add_argument("--until"); pset.add_argument("--rank-from",type=int); pset.add_argument("--rank-to",type=int); pset.add_argument("--order",choices=("newest_first","oldest_first")); pset.set_defaults(func=set_policy)
-    pshow2=psub.add_parser("show"); pshow2.add_argument("creator"); pshow2.add_argument("--provider",choices=PROVIDERS); pshow2.add_argument("--output",choices=("human","ndjson"),default="human"); pshow2.set_defaults(func=policy_show)
-    runp=cs.add_parser("run"); runp.add_argument("creator"); runp.add_argument("--provider",choices=PROVIDERS); runp.add_argument("--mode",choices=("batch","drain")); runp.add_argument("--batch-size",type=int); runp.add_argument("--max-batches",type=int); runp.add_argument("--max-runtime-minutes",type=int); runp.add_argument("--max-failures",type=int); runp.add_argument("--stop-on-failure",action="store_true"); runp.add_argument("--sleep-between-batches",type=int); runp.add_argument("--since"); runp.add_argument("--until"); runp.add_argument("--rank-from",type=int); runp.add_argument("--rank-to",type=int); runp.add_argument("--order",choices=("newest_first","oldest_first")); runp.add_argument("--allow-stale-catalog",action="store_true",help="Continue with the last saved catalog when sync fails. This is an explicit authorization."); runp.add_argument("--output",choices=("human","ndjson"),default="human"); runp.set_defaults(func=creator_run)
-    delete=cs.add_parser("delete"); delete.add_argument("creator"); delete.add_argument("--provider",choices=PROVIDERS,required=True); delete.add_argument("--yes",action="store_true"); delete.set_defaults(func=lambda a:registry(["delete-creator",a.provider,a.creator]+(["--yes"] if a.yes else [])))
+    if add_common_creator_commands_service is not None:
+        creator=sub.add_parser("creator")
+        add_common_creator_commands_service(
+            creator,
+            providers=PROVIDERS,
+            parse_duration=parse_duration,
+            creator_status=creator_status,
+            creator_sync=creator_sync,
+            creator_run=creator_run,
+            policy_show=policy_show,
+            set_policy=set_policy,
+            add_creator=add_creator,
+            registry=registry,
+            resolve_creator_provider=None,
+            strict_provider_resolution=False,
+            include_refresh_catalog=False,
+            include_typed_batch_sizes=False,
+            include_retry_failed=False,
+            default_provider_for_bare_handles="instagram",
+        )
+    else:
+        creator=sub.add_parser("creator"); cs=creator.add_subparsers(dest="creator_command",required=True)
+        add=cs.add_parser("add"); add.add_argument("creator"); add.add_argument("--provider",choices=PROVIDERS,default="instagram"); add.set_defaults(func=add_creator)
+        stat=cs.add_parser("status"); stat.add_argument("--provider",choices=PROVIDERS); stat.add_argument("--creator"); stat.add_argument("--output",choices=("human","ndjson"),default="human"); stat.set_defaults(func=creator_status)
+        listing=cs.add_parser("list"); listing.add_argument("--provider",choices=PROVIDERS); listing.add_argument("--creator"); listing.add_argument("--output",choices=("human","ndjson"),default="human"); listing.set_defaults(func=creator_status)
+        for name,enabled in (("sync-enable",True),("sync-disable",False)):
+            c=cs.add_parser(name); c.add_argument("creator"); c.add_argument("--provider",choices=PROVIDERS,default="instagram"); c.add_argument("--every",type=parse_duration); c.add_argument("--full-every",type=parse_duration); c.add_argument("--quick-window",type=int); c.set_defaults(func=lambda a,e=enabled:set_policy(a,e))
+        sync=cs.add_parser("sync"); sync.add_argument("creator"); sync.add_argument("--provider",choices=PROVIDERS); sync.add_argument("--force-full",action="store_true"); sync.set_defaults(func=creator_sync)
+        policy=cs.add_parser("policy-set"); policy.add_argument("creator"); policy.add_argument("--provider",choices=PROVIDERS,default="instagram"); policy.add_argument("--every",type=parse_duration); policy.add_argument("--full-every",type=parse_duration); policy.add_argument("--quick-window",type=int); policy.add_argument("--mode",choices=("batch","drain")); policy.add_argument("--batch-size",type=int); policy.add_argument("--max-batches",type=int); policy.add_argument("--max-runtime-minutes",type=int); policy.add_argument("--max-failures",type=int); policy.add_argument("--stop-on-failure",action=argparse.BooleanOptionalAction); policy.add_argument("--sleep-between-batches",type=int); policy.add_argument("--scheduled-processing",action=argparse.BooleanOptionalAction); policy.add_argument("--processing-every",type=parse_duration); policy.add_argument("--since"); policy.add_argument("--until"); policy.add_argument("--rank-from",type=int); policy.add_argument("--rank-to",type=int); policy.add_argument("--order",choices=("newest_first","oldest_first")); policy.set_defaults(func=set_policy)
+        pshow=cs.add_parser("policy-show"); pshow.add_argument("creator"); pshow.add_argument("--provider",choices=PROVIDERS); pshow.add_argument("--output",choices=("human","ndjson"),default="human"); pshow.set_defaults(func=policy_show)
+        pgroup=cs.add_parser("policy"); psub=pgroup.add_subparsers(dest="policy_command",required=True)
+        pset=psub.add_parser("set"); pset.add_argument("creator"); pset.add_argument("--provider",choices=PROVIDERS,default="instagram"); pset.add_argument("--every",type=parse_duration); pset.add_argument("--full-every",type=parse_duration); pset.add_argument("--quick-window",type=int); pset.add_argument("--mode",choices=("batch","drain")); pset.add_argument("--batch-size",type=int); pset.add_argument("--max-batches",type=int); pset.add_argument("--max-runtime-minutes",type=int); pset.add_argument("--max-failures",type=int); pset.add_argument("--stop-on-failure",action=argparse.BooleanOptionalAction); pset.add_argument("--sleep-between-batches",type=int); pset.add_argument("--scheduled-processing",action=argparse.BooleanOptionalAction); pset.add_argument("--processing-every",type=parse_duration); pset.add_argument("--since"); pset.add_argument("--until"); pset.add_argument("--rank-from",type=int); pset.add_argument("--rank-to",type=int); pset.add_argument("--order",choices=("newest_first","oldest_first")); pset.set_defaults(func=set_policy)
+        pshow2=psub.add_parser("show"); pshow2.add_argument("creator"); pshow2.add_argument("--provider",choices=PROVIDERS); pshow2.add_argument("--output",choices=("human","ndjson"),default="human"); pshow2.set_defaults(func=policy_show)
+        runp=cs.add_parser("run"); runp.add_argument("creator"); runp.add_argument("--provider",choices=PROVIDERS); runp.add_argument("--mode",choices=("batch","drain")); runp.add_argument("--batch-size",type=int); runp.add_argument("--max-batches",type=int); runp.add_argument("--max-runtime-minutes",type=int); runp.add_argument("--max-failures",type=int); runp.add_argument("--stop-on-failure",action="store_true"); runp.add_argument("--sleep-between-batches",type=int); runp.add_argument("--since"); runp.add_argument("--until"); runp.add_argument("--rank-from",type=int); runp.add_argument("--rank-to",type=int); runp.add_argument("--order",choices=("newest_first","oldest_first")); runp.add_argument("--allow-stale-catalog",action="store_true",help="Continue with the last saved catalog when sync fails. This is an explicit authorization."); runp.add_argument("--output",choices=("human","ndjson"),default="human"); runp.set_defaults(func=creator_run)
+        delete=cs.add_parser("delete"); delete.add_argument("creator"); delete.add_argument("--provider",choices=PROVIDERS,required=True); delete.add_argument("--yes",action="store_true"); delete.set_defaults(func=lambda a:registry(["delete-creator",a.provider,a.creator]+(["--yes"] if a.yes else [])))
     scheduler=sub.add_parser("scheduler"); ss=scheduler.add_subparsers(dest="scheduler_command",required=True); tick=ss.add_parser("tick"); tick.add_argument("--output",choices=("human","ndjson"),default="human"); tick.add_argument("--non-interactive",action="store_true"); tick.set_defaults(func=scheduler_tick)
     update=sub.add_parser("update")
     if add_common_update_commands_service is not None:

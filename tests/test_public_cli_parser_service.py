@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from media2md.bundle.scripts.public_cli_parser_service import (
+    add_common_creator_commands,
     add_common_data_commands,
     add_common_repair_commands,
     add_common_top_level_commands,
@@ -84,3 +85,54 @@ def test_add_common_uninstall_command_registers_dry_run():
     args = parser.parse_args(["uninstall", "--dry-run"])
     assert args.command == "uninstall"
     assert args.dry_run is True
+
+
+def test_add_common_creator_commands_media2md_shape():
+    parser, sub = _parser()
+    creator = sub.add_parser("creator")
+    add_common_creator_commands(
+        creator,
+        providers=("instagram", "youtube", "tiktok"),
+        parse_duration=lambda text: 1,
+        creator_status=lambda args: 0,
+        creator_sync=lambda args: 0,
+        creator_run=lambda args: 0,
+        policy_show=lambda args: 0,
+        set_policy=lambda args, enabled=None: 0,
+        add_creator=lambda args: 0,
+        registry=lambda args: 0,
+        resolve_creator_provider=lambda creator, provider, command_name: provider or "youtube",
+        strict_provider_resolution=True,
+        include_refresh_catalog=True,
+        include_typed_batch_sizes=True,
+        include_retry_failed=True,
+        default_provider_for_bare_handles=None,
+    )
+    args = parser.parse_args(["creator", "refresh-catalog", "@creator-name", "--provider", "youtube"])
+    assert args.command == "creator"
+    assert args.creator_command == "refresh-catalog"
+
+
+def test_add_common_creator_commands_social2md_shape():
+    parser, sub = _parser()
+    creator = sub.add_parser("creator")
+    add_common_creator_commands(
+        creator,
+        providers=("instagram", "youtube", "tiktok"),
+        parse_duration=lambda text: 1,
+        creator_status=lambda args: 0,
+        creator_sync=lambda args: 0,
+        creator_run=lambda args: 0,
+        policy_show=lambda args: 0,
+        set_policy=lambda args, enabled=None: 0,
+        add_creator=lambda args: 0,
+        registry=lambda args: 0,
+        resolve_creator_provider=None,
+        strict_provider_resolution=False,
+        include_refresh_catalog=False,
+        include_typed_batch_sizes=False,
+        include_retry_failed=False,
+        default_provider_for_bare_handles="instagram",
+    )
+    args = parser.parse_args(["creator", "policy-set", "@creator-name"])
+    assert args.provider == "instagram"
