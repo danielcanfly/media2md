@@ -5,7 +5,6 @@ import argparse
 import json
 import os
 import re
-import shutil
 import signal
 import subprocess
 import sys
@@ -13,6 +12,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from media2md.probe import probe_command
 from media2md_paths import command_path
 from media2md_ytdlp import (
     classify_access_error, doctor_payload as youtube_environment_payload,
@@ -29,6 +29,15 @@ INSTALOADER = ROOT / "scripts" / "instagram_instaloader.py"
 
 def command(name: str) -> str | None:
     return command_path(name)
+
+
+def _command_ready(name: str, *, package: str | None = None) -> tuple[bool, dict[str, Any]]:
+    probe = probe_command(name, package=package or name)
+    return probe.ok, {
+        "status": probe.status,
+        "output": probe.output or None,
+        "hint": probe.hint or None,
+    }
 
 
 def auth_args(provider: str) -> list[str]:
@@ -64,12 +73,16 @@ def _run(cmd: list[str], timeout: int) -> subprocess.CompletedProcess[str]:
 def instagram_payload(shortcode: str | None) -> dict[str, Any]:
     gallery = command("gallery-dl")
     instaloader = command("instaloader")
+    gallery_ready, gallery_probe = _command_ready("gallery-dl")
+    instaloader_ready, instaloader_probe = _command_ready("instaloader")
     cookie = ROOT / "data" / "secrets" / "instagram-cookies.txt"
     payload: dict[str, Any] = {
         "event": "instagram_backends_doctor", "gallery_dl_available": bool(gallery),
         "instaloader_available": bool(instaloader), "cookie_file": str(cookie),
         "cookie_file_exists": cookie.is_file(), "probe_shortcode": shortcode,
         "gallery_dl_probe": None, "instaloader_probe": None,
+        "gallery_dl_command_probe": gallery_probe,
+        "instaloader_command_probe": instaloader_probe,
     }
     if shortcode:
         url = f"https://www.instagram.com/reel/{shortcode}/"
@@ -81,7 +94,7 @@ def instagram_payload(shortcode: str | None) -> dict[str, Any]:
         if INSTALOADER.is_file():
             result = _run([sys.executable, str(INSTALOADER), "inspect", shortcode], 300)
             payload["instaloader_probe"] = {"ok": result.returncode == 0, "error": (result.stderr or result.stdout)[-1000:] if result.returncode else None}
-    payload["ready"] = bool(payload["gallery_dl_available"] and payload["instaloader_available"] and payload["cookie_file_exists"])
+    payload["ready"] = bool(gallery_ready and instaloader_ready and payload["cookie_file_exists"])
     return payload
 
 
@@ -173,6 +186,9 @@ def _access_probe(provider: str, url: str, *, transcription_smoke_test: bool = F
     yt = command("yt-dlp")
     ffmpeg = command("ffmpeg")
     whisper = command("mlx_whisper")
+    yt_ready, yt_probe = _command_ready("yt-dlp", package="yt-dlp")
+    ffmpeg_ready, ffmpeg_probe = _command_ready("ffmpeg", package="ffmpeg")
+    whisper_ready, whisper_probe = _command_ready("mlx_whisper", package="mlx-whisper")
     base: list[str] = []
     if provider == "youtube":
         # Public metadata/captions first. Auth is considered only inside the
@@ -195,13 +211,18 @@ def _access_probe(provider: str, url: str, *, transcription_smoke_test: bool = F
         "action_required": False, "required_action": None,
         "args": base, "browser_launch_allowed": False, "browser_launch_attempts": 0,
         "browser_safety": browser_safety_payload(),
+        "yt_dlp_command_probe": yt_probe,
+        "ffmpeg_command_probe": ffmpeg_probe,
+        "mlx_whisper_command_probe": whisper_probe,
         "auth_mode": selected_auth.get("mode") if provider == "youtube" else None,
         "auth_browser": selected_auth.get("browser") if provider == "youtube" else None,
         "auth_profile": selected_auth.get("profile") if provider == "youtube" else None,
         **transcription,
     }
     payload["transcription_ready"] = bool(payload["transcription_cli_ready"])
-    if not yt:
+    payload["ffmpeg_ready_probe"] = bool(ffmpeg_ready)
+    payload["transcription_binary_ready_probe"] = bool(whisper_ready)
+    if not yt_ready:
         payload.update(error="yt-dlp is not installed", error_code="missing_dependency", retryable=False, action_required=True, required_action="install_provider_extra")
         return payload
     if provider == "tiktok" and not impersonation_args("tiktok"):
