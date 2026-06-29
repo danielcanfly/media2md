@@ -227,6 +227,12 @@ def set_policy(args: argparse.Namespace, sync_enabled: bool | None = None) -> in
 
 def registry_rows() -> list[dict[str, Any]]:
     try:
+        from public_cli_state_service import registry_rows as registry_rows_service
+    except ModuleNotFoundError:
+        registry_rows_service = None
+    if registry_rows_service is not None:
+        return registry_rows_service(REGISTRY_DB, include_youtube_totals=True)
+    try:
         from media2md_registry import refresh_legacy
         refresh_legacy()
     except Exception:
@@ -245,12 +251,27 @@ def registry_rows() -> list[dict[str, Any]]:
 
 
 def creator_status(args: argparse.Namespace) -> int:
+    try:
+        from public_cli_state_service import render_creator_status as render_creator_status_service
+    except ModuleNotFoundError:
+        render_creator_status_service = None
     rows=registry_rows(); policies=load_policies()["creators"]
     if args.provider: rows=[r for r in rows if r["provider"]==args.provider]
     if args.creator:
         provider = resolve_creator_provider(args.creator, args.provider, command_name="creator status")
         handle=normalize_creator(provider,args.creator)
         rows=[r for r in rows if r["handle"].lower()==handle.lower()]
+    if render_creator_status_service is not None:
+        return render_creator_status_service(
+            args,
+            rows=rows,
+            effective_policy=effective_policy,
+            emit=emit,
+            duration=duration,
+            normalize_batch_sizes=normalize_batch_sizes,
+            include_youtube_breakdown=True,
+            include_batch_limits=True,
+        )
     if args.output=="ndjson":
         for row in rows:
             policy=effective_policy(row["provider"],row["handle"])
@@ -276,8 +297,27 @@ def creator_status(args: argparse.Namespace) -> int:
 
 
 def system_status(args: argparse.Namespace) -> int:
+    try:
+        from public_cli_state_service import print_system_status as print_system_status_service, system_status_payload as system_status_payload_service
+    except ModuleNotFoundError:
+        print_system_status_service = None
+        system_status_payload_service = None
     config=load_json(CONFIG,{})
     auth_data=load_json(AUTH_PROFILES,{"providers":{}}).get("providers",{})
+    if system_status_payload_service is not None:
+        payload = system_status_payload_service(
+            config=config,
+            auth_data=auth_data,
+            providers=PROVIDERS,
+            version=VERSION,
+            root=ROOT,
+            repository=REPOSITORY,
+            creator_count=len(registry_rows()),
+            registry_db=REGISTRY_DB,
+        )
+        if args.output=="ndjson": emit(payload,args.output); return 0
+        print_system_status_service(payload)
+        return 0
     providers=[]
     for name in PROVIDERS:
         profile=auth_data.get(name,{})
@@ -301,7 +341,17 @@ def system_status(args: argparse.Namespace) -> int:
 
 
 def settings_show(args: argparse.Namespace) -> int:
+    try:
+        from public_cli_state_service import print_json_block as print_json_block_service, settings_payload as settings_payload_service
+    except ModuleNotFoundError:
+        print_json_block_service = None
+        settings_payload_service = None
     config=load_json(CONFIG,{})
+    if settings_payload_service is not None:
+        payload = settings_payload_service(config)
+        if args.output=="ndjson": emit(payload,args.output); return 0
+        print_json_block_service("MEDIA2MD_SETTINGS", payload)
+        return 0
     payload={"event":"settings","timezone":config.get("timezone","UTC"),"ui_locale":config.get("ui_locale","en"),
              "markdown_locale":config.get("markdown_locale","en"),"defaults":config.get("defaults",{}),
              "providers":config.get("providers",{}),"updates":config.get("updates",{})}
@@ -311,7 +361,14 @@ def settings_show(args: argparse.Namespace) -> int:
 
 
 def settings_set(args: argparse.Namespace) -> int:
+    try:
+        from public_cli_state_service import apply_settings_updates as apply_settings_updates_service
+    except ModuleNotFoundError:
+        apply_settings_updates_service = None
     config=load_json(CONFIG,{})
+    if apply_settings_updates_service is not None:
+        config = apply_settings_updates_service(config, args)
+        atomic_json(CONFIG,config); return settings_show(argparse.Namespace(output=args.output))
     if args.instagram_backend:
         config.setdefault("providers",{}).setdefault("instagram",{})["backend"]=args.instagram_backend
     if getattr(args, "youtube_js_runtime", None):
@@ -358,7 +415,16 @@ def init_command(args: argparse.Namespace) -> int:
 
 
 def agent_status(args: argparse.Namespace) -> int:
+    try:
+        from public_cli_state_service import agent_status_payload as agent_status_payload_service, print_json_block as print_json_block_service
+    except ModuleNotFoundError:
+        agent_status_payload_service = None
+        print_json_block_service = None
     config=load_json(CONFIG,{})
+    if agent_status_payload_service is not None:
+        payload = agent_status_payload_service(config, schema_version=13)
+        if args.output=="ndjson": emit(payload,args.output); return 0
+        print_json_block_service("MEDIA2MD_AGENT_STATUS", payload); return 0
     agent=config.get("agent",{})
     payload={"event":"agent_status","non_interactive_locale":"en","ndjson_schema_version":13,
              "permissions":agent,"update_confirmation_required":True,"delete_confirmation_required":True,
