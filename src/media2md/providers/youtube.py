@@ -4,6 +4,7 @@ from media2md.urls import detect_provider, normalize_creator
 
 from ..probe import probe_command
 from ..provider_contract import ProviderAdapter
+from ..provider_health import probe_health_result
 from ..results import HealthResult, ProviderResolutionResult
 
 
@@ -26,8 +27,12 @@ class YouTubeAdapter(ProviderAdapter):
 
     def health_check(self) -> HealthResult:
         probe = probe_command("yt-dlp", package="yt-dlp")
-        if probe.ok:
-            return HealthResult("ok", "yt-dlp is available", provider=self.name, backend="yt-dlp")
-        if probe.status == "missing":
-            return HealthResult("warn", "yt-dlp is not installed", provider=self.name, backend="yt-dlp")
-        return HealthResult(probe.status, probe.hint or probe.output or "yt-dlp probe failed", provider=self.name, backend="yt-dlp")
+        return probe_health_result(
+            provider=self.name,
+            backend="yt-dlp",
+            backends=self.backends,
+            probe=probe,
+            success_message="yt-dlp is available",
+            missing_message="yt-dlp is not installed",
+            failure_message="yt-dlp probe failed",
+        )

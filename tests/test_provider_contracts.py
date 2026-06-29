@@ -22,6 +22,13 @@ def test_provider_contract_surface():
         result = adapter.health_check()
         assert result.status in {"ok", "warn", "missing", "broken", "timeout", "error"}
         assert isinstance(result.message, str)
+        assert result.provider == adapter.name
+        assert result.backend == result.active_backend
+        assert isinstance(result.active_backend, str | type(None))
+        assert result.backends == tuple(adapter.backends)
+        assert isinstance(result.hints, tuple)
+        assert isinstance(result.artifacts, dict)
+        assert isinstance(result.details, dict)
 
 
 def test_provider_can_handle_own_urls():

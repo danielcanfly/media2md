@@ -4,6 +4,7 @@ from media2md.urls import detect_provider, normalize_creator
 
 from ..probe import probe_command
 from ..provider_contract import ProviderAdapter
+from ..provider_health import probe_health_result
 from ..results import HealthResult, ProviderResolutionResult
 
 
@@ -26,8 +27,12 @@ class InstagramAdapter(ProviderAdapter):
 
     def health_check(self) -> HealthResult:
         primary = probe_command("gallery-dl", package="gallery-dl")
-        if primary.ok:
-            return HealthResult("ok", "gallery-dl is available", provider=self.name, backend="gallery-dl")
-        if primary.status == "missing":
-            return HealthResult("warn", "gallery-dl is not installed", provider=self.name, backend="gallery-dl")
-        return HealthResult(primary.status, primary.hint or primary.output or "gallery-dl probe failed", provider=self.name, backend="gallery-dl")
+        return probe_health_result(
+            provider=self.name,
+            backend="gallery-dl",
+            backends=self.backends,
+            probe=primary,
+            success_message="gallery-dl is available",
+            missing_message="gallery-dl is not installed",
+            failure_message="gallery-dl probe failed",
+        )
