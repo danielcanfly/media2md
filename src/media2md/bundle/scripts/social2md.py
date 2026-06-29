@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import shutil
@@ -16,6 +17,22 @@ from typing import Any
 
 from creator_run_shared import prepare_catalog_for_creator_run
 from media2md_urls import detect_provider as detect_provider_url, normalize_creator as normalize_creator_target
+try:
+    from public_cli_imports import optional_attr, optional_attrs
+except ModuleNotFoundError:
+    def optional_attr(module_name: str, attr_name: str):
+        try:
+            module = importlib.import_module(module_name)
+        except ModuleNotFoundError:
+            return None
+        return getattr(module, attr_name, None)
+
+    def optional_attrs(module_name: str, *attr_names: str):
+        try:
+            module = importlib.import_module(module_name)
+        except ModuleNotFoundError:
+            return tuple(None for _ in attr_names)
+        return tuple(getattr(module, attr_name, None) for attr_name in attr_names)
 
 ROOT = Path(__file__).resolve().parents[1]
 CORE = ROOT / "scripts" / "social2md_core.py"
@@ -88,30 +105,21 @@ def generic(args: list[str]) -> int:
 
 
 def detect_provider(value: str) -> str | None:
-    try:
-        from creator_resolution_service import detect_provider as detect_provider_service
-    except ModuleNotFoundError:
-        detect_provider_service = None
+    detect_provider_service = optional_attr("creator_resolution_service", "detect_provider")
     if detect_provider_service is not None:
         return detect_provider_service(value)
     return detect_provider_url(value)
 
 
 def normalize_creator(provider: str, value: str) -> str:
-    try:
-        from creator_resolution_service import normalize_creator_handle as normalize_creator_handle_service
-    except ModuleNotFoundError:
-        normalize_creator_handle_service = None
+    normalize_creator_handle_service = optional_attr("creator_resolution_service", "normalize_creator_handle")
     if normalize_creator_handle_service is not None:
         return normalize_creator_handle_service(provider, value)
     return str(normalize_creator_target(provider, value).creator)
 
 
 def resolve_creator_provider(value: str, provider: str | None, *, command_name: str) -> str:
-    try:
-        from creator_resolution_service import resolve_provider_for_creator as resolve_provider_for_creator_service
-    except ModuleNotFoundError:
-        resolve_provider_for_creator_service = None
+    resolve_provider_for_creator_service = optional_attr("creator_resolution_service", "resolve_provider_for_creator")
     if resolve_provider_for_creator_service is not None:
         return resolve_provider_for_creator_service(value, provider, command_name=command_name)
     if provider:
@@ -157,10 +165,7 @@ def merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
 
 
 def effective_policy(provider: str, creator: str) -> dict[str, Any]:
-    try:
-        from creator_policy_service import effective_policy as effective_policy_service
-    except ModuleNotFoundError:
-        effective_policy_service = None
+    effective_policy_service = optional_attr("creator_policy_service", "effective_policy")
     if effective_policy_service is not None:
         return effective_policy_service(load_json, CONFIG, POLICIES, provider, creator)
     return merge(policy_defaults(), load_policies()["creators"].get(f"{provider}:{creator}", {}))
@@ -180,10 +185,7 @@ def duration(minutes: int) -> str:
 
 
 def set_policy(args: argparse.Namespace, sync_enabled: bool | None = None) -> int:
-    try:
-        from creator_policy_service import set_policy as set_policy_service
-    except ModuleNotFoundError:
-        set_policy_service = None
+    set_policy_service = optional_attr("creator_policy_service", "set_policy")
     if set_policy_service is not None:
         return set_policy_service(
             args,
@@ -219,10 +221,7 @@ def set_policy(args: argparse.Namespace, sync_enabled: bool | None = None) -> in
 
 
 def registry_rows() -> list[dict[str, Any]]:
-    try:
-        from public_cli_state_service import registry_rows as registry_rows_service
-    except ModuleNotFoundError:
-        registry_rows_service = None
+    registry_rows_service = optional_attr("public_cli_state_service", "registry_rows")
     if registry_rows_service is not None:
         return registry_rows_service(REGISTRY_DB, include_youtube_totals=False)
     try:
@@ -240,10 +239,7 @@ def registry_rows() -> list[dict[str, Any]]:
 
 
 def creator_status(args: argparse.Namespace) -> int:
-    try:
-        from public_cli_state_service import render_creator_status as render_creator_status_service
-    except ModuleNotFoundError:
-        render_creator_status_service = None
+    render_creator_status_service = optional_attr("public_cli_state_service", "render_creator_status")
     rows=registry_rows(); policies=load_policies()["creators"]
     if args.provider: rows=[r for r in rows if r["provider"]==args.provider]
     if args.creator:
@@ -273,11 +269,11 @@ def creator_status(args: argparse.Namespace) -> int:
 
 
 def system_status(args: argparse.Namespace) -> int:
-    try:
-        from public_cli_state_service import print_system_status as print_system_status_service, system_status_payload as system_status_payload_service
-    except ModuleNotFoundError:
-        print_system_status_service = None
-        system_status_payload_service = None
+    print_system_status_service, system_status_payload_service = optional_attrs(
+        "public_cli_state_service",
+        "print_system_status",
+        "system_status_payload",
+    )
     config=load_json(CONFIG,{})
     auth_data=load_json(AUTH_PROFILES,{"providers":{}}).get("providers",{})
     if system_status_payload_service is not None:
@@ -317,11 +313,11 @@ def system_status(args: argparse.Namespace) -> int:
 
 
 def settings_show(args: argparse.Namespace) -> int:
-    try:
-        from public_cli_state_service import print_json_block as print_json_block_service, settings_payload as settings_payload_service
-    except ModuleNotFoundError:
-        print_json_block_service = None
-        settings_payload_service = None
+    print_json_block_service, settings_payload_service = optional_attrs(
+        "public_cli_state_service",
+        "print_json_block",
+        "settings_payload",
+    )
     config=load_json(CONFIG,{})
     if settings_payload_service is not None:
         payload = settings_payload_service(config)
@@ -337,10 +333,7 @@ def settings_show(args: argparse.Namespace) -> int:
 
 
 def settings_set(args: argparse.Namespace) -> int:
-    try:
-        from public_cli_state_service import apply_settings_updates as apply_settings_updates_service
-    except ModuleNotFoundError:
-        apply_settings_updates_service = None
+    apply_settings_updates_service = optional_attr("public_cli_state_service", "apply_settings_updates")
     config=load_json(CONFIG,{})
     if apply_settings_updates_service is not None:
         config = apply_settings_updates_service(config, args)
@@ -391,11 +384,11 @@ def init_command(args: argparse.Namespace) -> int:
 
 
 def agent_status(args: argparse.Namespace) -> int:
-    try:
-        from public_cli_state_service import agent_status_payload as agent_status_payload_service, print_json_block as print_json_block_service
-    except ModuleNotFoundError:
-        agent_status_payload_service = None
-        print_json_block_service = None
+    agent_status_payload_service, print_json_block_service = optional_attrs(
+        "public_cli_state_service",
+        "agent_status_payload",
+        "print_json_block",
+    )
     config=load_json(CONFIG,{})
     if agent_status_payload_service is not None:
         payload = agent_status_payload_service(config, schema_version=12)
@@ -419,11 +412,11 @@ def refresh_registry_legacy() -> None:
 
 
 def policy_show(args: argparse.Namespace) -> int:
-    try:
-        from public_cli_creator_service import creator_policy_payload as creator_policy_payload_service, print_policy as print_policy_service
-    except ModuleNotFoundError:
-        creator_policy_payload_service = None
-        print_policy_service = None
+    creator_policy_payload_service, print_policy_service = optional_attrs(
+        "public_cli_creator_service",
+        "creator_policy_payload",
+        "print_policy",
+    )
     provider=args.provider or detect_provider(args.creator) or "instagram"
     creator=normalize_creator(provider,args.creator)
     if creator_policy_payload_service is not None:
@@ -436,10 +429,7 @@ def policy_show(args: argparse.Namespace) -> int:
 
 
 def creator_sync(args: argparse.Namespace) -> int:
-    try:
-        from public_cli_creator_service import creator_sync_common as creator_sync_common_service
-    except ModuleNotFoundError:
-        creator_sync_common_service = None
+    creator_sync_common_service = optional_attr("public_cli_creator_service", "creator_sync_common")
     provider=args.provider or detect_provider(args.creator) or "instagram"
     refresh_auth(provider)
     if creator_sync_common_service is not None:
@@ -465,20 +455,20 @@ def creator_sync(args: argparse.Namespace) -> int:
 
 
 def creator_run(args: argparse.Namespace) -> int:
-    try:
-        from public_cli_creator_service import (
-            creator_run_instagram as creator_run_instagram_service,
-            creator_run_registry_command as creator_run_registry_command_service,
-            emit_sync_warning_or_fail as emit_sync_warning_or_fail_service,
-            merge_batch_sizes as merge_batch_sizes_service,
-            resolve_existing_row as resolve_existing_row_service,
-        )
-    except ModuleNotFoundError:
-        creator_run_instagram_service = None
-        creator_run_registry_command_service = None
-        emit_sync_warning_or_fail_service = None
-        merge_batch_sizes_service = None
-        resolve_existing_row_service = None
+    (
+        creator_run_instagram_service,
+        creator_run_registry_command_service,
+        emit_sync_warning_or_fail_service,
+        merge_batch_sizes_service,
+        resolve_existing_row_service,
+    ) = optional_attrs(
+        "public_cli_creator_service",
+        "creator_run_instagram",
+        "creator_run_registry_command",
+        "emit_sync_warning_or_fail",
+        "merge_batch_sizes",
+        "resolve_existing_row",
+    )
     provider=args.provider or detect_provider(args.creator) or "instagram"
     refresh_auth(provider)
     creator=normalize_creator(provider,args.creator)
@@ -581,10 +571,7 @@ def creator_run(args: argparse.Namespace) -> int:
 
 
 def add_creator(args: argparse.Namespace) -> int:
-    try:
-        from public_cli_creator_service import add_creator_instagram as add_creator_instagram_service
-    except ModuleNotFoundError:
-        add_creator_instagram_service = None
+    add_creator_instagram_service = optional_attr("public_cli_creator_service", "add_creator_instagram")
     provider = args.provider
     refresh_auth(provider)
     if provider == "instagram":
@@ -623,11 +610,11 @@ def add_creator(args: argparse.Namespace) -> int:
 
 
 def scheduler_tick(args: argparse.Namespace) -> int:
-    try:
-        from public_cli_tail_service import build_scheduler_creator_run_namespace as build_scheduler_creator_run_namespace_service, scheduler_tick_common as scheduler_tick_common_service
-    except ModuleNotFoundError:
-        build_scheduler_creator_run_namespace_service = None
-        scheduler_tick_common_service = None
+    build_scheduler_creator_run_namespace_service, scheduler_tick_common_service = optional_attrs(
+        "public_cli_tail_service",
+        "build_scheduler_creator_run_namespace",
+        "scheduler_tick_common",
+    )
     if scheduler_tick_common_service is not None:
         return scheduler_tick_common_service(
             args,
@@ -699,10 +686,7 @@ def scheduler_tick(args: argparse.Namespace) -> int:
 
 
 def update_check(args: argparse.Namespace) -> int:
-    try:
-        from public_cli_tail_service import update_check_common as update_check_common_service
-    except ModuleNotFoundError:
-        update_check_common_service = None
+    update_check_common_service = optional_attr("public_cli_tail_service", "update_check_common")
     if update_check_common_service is not None:
         return update_check_common_service(args, repository=REPOSITORY, version=VERSION, emit=emit)
     repo=args.repository or REPOSITORY
@@ -726,10 +710,7 @@ def update_check(args: argparse.Namespace) -> int:
 
 
 def data_delete_all(args: argparse.Namespace) -> int:
-    try:
-        from public_cli_tail_service import data_delete_all_common as data_delete_all_common_service
-    except ModuleNotFoundError:
-        data_delete_all_common_service = None
+    data_delete_all_common_service = optional_attr("public_cli_tail_service", "data_delete_all_common")
     if data_delete_all_common_service is not None:
         return data_delete_all_common_service(args, root=ROOT)
     from media2md_runtime import maintenance_lock
@@ -758,10 +739,7 @@ def data_delete_all(args: argparse.Namespace) -> int:
 
 
 def remove_openclaw_cron() -> tuple[int, list[str]]:
-    try:
-        from public_cli_tail_service import remove_openclaw_cron_common as remove_openclaw_cron_common_service
-    except ModuleNotFoundError:
-        remove_openclaw_cron_common_service = None
+    remove_openclaw_cron_common_service = optional_attr("public_cli_tail_service", "remove_openclaw_cron_common")
     if remove_openclaw_cron_common_service is not None:
         return remove_openclaw_cron_common_service()
     executable = shutil.which("openclaw")
@@ -791,10 +769,7 @@ def remove_openclaw_cron() -> tuple[int, list[str]]:
 
 
 def uninstall(args: argparse.Namespace) -> int:
-    try:
-        from public_cli_tail_service import uninstall_common as uninstall_common_service
-    except ModuleNotFoundError:
-        uninstall_common_service = None
+    uninstall_common_service = optional_attr("public_cli_tail_service", "uninstall_common")
     if uninstall_common_service is not None:
         return uninstall_common_service(
             args,
