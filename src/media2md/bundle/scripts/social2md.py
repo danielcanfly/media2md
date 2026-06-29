@@ -410,16 +410,48 @@ def agent_status(args: argparse.Namespace) -> int:
     print("MEDIA2MD_AGENT_STATUS"); print(json.dumps(payload,ensure_ascii=False,indent=2)); return 0
 
 
+def refresh_registry_legacy() -> None:
+    try:
+        from media2md_registry import refresh_legacy
+        refresh_legacy()
+    except Exception:
+        pass
+
+
 def policy_show(args: argparse.Namespace) -> int:
+    try:
+        from public_cli_creator_service import creator_policy_payload as creator_policy_payload_service, print_policy as print_policy_service
+    except ModuleNotFoundError:
+        creator_policy_payload_service = None
+        print_policy_service = None
     provider=args.provider or detect_provider(args.creator) or "instagram"
-    creator=normalize_creator(provider,args.creator); payload={"event":"creator_policy","provider":provider,"creator":creator,"policy":effective_policy(provider,creator)}
+    creator=normalize_creator(provider,args.creator)
+    if creator_policy_payload_service is not None:
+        payload = creator_policy_payload_service(provider=provider, creator=creator, effective_policy=effective_policy)
+        if args.output=="ndjson": emit(payload,args.output); return 0
+        print_policy_service(payload); return 0
+    payload={"event":"creator_policy","provider":provider,"creator":creator,"policy":effective_policy(provider,creator)}
     if args.output=="ndjson": emit(payload,args.output); return 0
     print("CREATOR_POLICY"); print(json.dumps(payload,ensure_ascii=False,indent=2)); return 0
 
 
 def creator_sync(args: argparse.Namespace) -> int:
+    try:
+        from public_cli_creator_service import creator_sync_common as creator_sync_common_service
+    except ModuleNotFoundError:
+        creator_sync_common_service = None
     provider=args.provider or detect_provider(args.creator) or "instagram"
     refresh_auth(provider)
+    if creator_sync_common_service is not None:
+        return creator_sync_common_service(
+            args,
+            root=ROOT,
+            provider=provider,
+            normalize_creator=normalize_creator,
+            effective_policy=effective_policy,
+            registry=registry,
+            run=run,
+        )
     if provider=="instagram":
         command=["creator_bulk.py","status"]
         # Use existing engine directly through its status command.
@@ -433,29 +465,58 @@ def creator_sync(args: argparse.Namespace) -> int:
 
 
 def creator_run(args: argparse.Namespace) -> int:
+    try:
+        from public_cli_creator_service import (
+            creator_run_instagram as creator_run_instagram_service,
+            creator_run_registry_command as creator_run_registry_command_service,
+            emit_sync_warning_or_fail as emit_sync_warning_or_fail_service,
+            merge_batch_sizes as merge_batch_sizes_service,
+            resolve_existing_row as resolve_existing_row_service,
+        )
+    except ModuleNotFoundError:
+        creator_run_instagram_service = None
+        creator_run_registry_command_service = None
+        emit_sync_warning_or_fail_service = None
+        merge_batch_sizes_service = None
+        resolve_existing_row_service = None
     provider=args.provider or detect_provider(args.creator) or "instagram"
     refresh_auth(provider)
     creator=normalize_creator(provider,args.creator)
     policy=effective_policy(provider,creator)
     mode=args.mode or policy["processing"]["mode"]
     batch_size=args.batch_size or policy["processing"]["batch_size"]
+    if merge_batch_sizes_service is not None:
+        batch_size, batch_sizes = merge_batch_sizes_service(
+            args=args,
+            processing=policy["processing"],
+            parse_batch_size_assignments=None,
+            normalize_batch_sizes=None,
+            typed_batch_sizes_supported=False,
+        )
+    else:
+        batch_sizes = {}
     if provider=="instagram":
+        if creator_run_instagram_service is not None:
+            return creator_run_instagram_service(
+                args,
+                batch_size=batch_size,
+                mode=mode,
+                core=core,
+                retry_failed_supported=False,
+                refresh_registry=refresh_registry_legacy,
+            )
         cmd=["creator","run",args.creator,"--mode",mode,"--batch-size",str(batch_size),"--output",args.output]
         for name, flag in (("since","--since"),("until","--until"),("rank_from","--rank-from"),("rank_to","--rank-to"),("order","--order"),("max_batches","--max-batches"),("max_runtime_minutes","--max-runtime-minutes"),("max_failures","--max-failures"),("sleep_between_batches","--sleep-between-batches")):
             value=getattr(args,name,None)
             if value is not None: cmd += [flag,str(value)]
         if args.stop_on_failure: cmd.append("--stop-on-failure")
         code = core(cmd)
-        try:
-            from media2md_registry import refresh_legacy
-            refresh_legacy()
-        except Exception:
-            pass
+        refresh_registry_legacy()
         return code
     # Use the shared pre-run catalog decision so every public CLI surface
     # follows the same partial-cursor behavior.
     current_rows = registry_rows()
-    existing_row = next((r for r in current_rows if r["provider"]==provider and r["handle"].lower()==creator.lower()), None)
+    existing_row = resolve_existing_row_service(current_rows, provider, creator) if resolve_existing_row_service is not None else next((r for r in current_rows if r["provider"]==provider and r["handle"].lower()==creator.lower()), None)
     sync_code = prepare_catalog_for_creator_run(
         provider=provider,
         creator_arg=args.creator,
@@ -467,59 +528,92 @@ def creator_run(args: argparse.Namespace) -> int:
         emit_call=emit,
     )
     if sync_code != 0:
-        can_use_stale = bool(args.allow_stale_catalog and existing_row and int(existing_row.get("tracked") or 0) > 0)
-        if not can_use_stale:
-            if args.output=="human": print(f"SYNC_FAILED provider={provider} creator={creator}; batch_not_started=true",file=sys.stderr)
-            else: emit({"event":"sync_failed","provider":provider,"creator":creator,"batch_not_started":True},args.output)
-            return sync_code
-        warning = {
-            "event": "sync_warning",
-            "provider": provider,
-            "creator": creator,
-            "using_cached_catalog": True,
-            "catalog_last_synced_at": existing_row.get("last_sync_at"),
-            "tracked": int(existing_row.get("tracked") or 0),
-            "confirmation_was_explicit": True,
-        }
-        if args.output=="human":
-            print("SYNC_WARNING", flush=True)
-            print(f"provider={provider}", flush=True)
-            print(f"creator={creator}", flush=True)
-            print("using_cached_catalog=true", flush=True)
-            print(f"catalog_last_synced_at={existing_row.get('last_sync_at') or '-'}", flush=True)
-            print(f"tracked={int(existing_row.get('tracked') or 0)}", flush=True)
+        if emit_sync_warning_or_fail_service is not None:
+            outcome = emit_sync_warning_or_fail_service(
+                args=args,
+                provider=provider,
+                creator=creator,
+                sync_code=sync_code,
+                existing_row=existing_row,
+                emit=emit,
+            )
+            if outcome is not None:
+                return outcome
         else:
-            emit(warning,args.output)
-    cmd=["run",provider,args.creator,"--mode",mode,"--batch-size",str(batch_size),"--max-batches",str(args.max_batches if args.max_batches is not None else policy["processing"]["max_batches"]),"--max-runtime-minutes",str(args.max_runtime_minutes if args.max_runtime_minutes is not None else policy["processing"]["max_runtime_minutes"]),"--max-failures",str(args.max_failures if args.max_failures is not None else policy["processing"]["max_failures"]),"--sleep-between-batches",str(args.sleep_between_batches if args.sleep_between_batches is not None else policy["processing"]["sleep_between_batches"]),"--order",args.order or policy["filters"]["order"],"--output",args.output]
-    if args.stop_on_failure or policy["processing"].get("stop_on_failure"): cmd.append("--stop-on-failure")
-    for val,flag in ((args.since or policy["filters"].get("since"),"--since"),(args.until or policy["filters"].get("until"),"--until"),(args.rank_from or policy["filters"].get("rank_from"),"--rank-from"),(args.rank_to or policy["filters"].get("rank_to"),"--rank-to")):
-        if val is not None: cmd += [flag,str(val)]
+            can_use_stale = bool(args.allow_stale_catalog and existing_row and int(existing_row.get("tracked") or 0) > 0)
+            if not can_use_stale:
+                if args.output=="human": print(f"SYNC_FAILED provider={provider} creator={creator}; batch_not_started=true",file=sys.stderr)
+                else: emit({"event":"sync_failed","provider":provider,"creator":creator,"batch_not_started":True},args.output)
+                return sync_code
+            warning = {
+                "event": "sync_warning",
+                "provider": provider,
+                "creator": creator,
+                "using_cached_catalog": True,
+                "catalog_last_synced_at": existing_row.get("last_sync_at"),
+                "tracked": int(existing_row.get("tracked") or 0),
+                "confirmation_was_explicit": True,
+            }
+            if args.output=="human":
+                print("SYNC_WARNING", flush=True)
+                print(f"provider={provider}", flush=True)
+                print(f"creator={creator}", flush=True)
+                print("using_cached_catalog=true", flush=True)
+                print(f"catalog_last_synced_at={existing_row.get('last_sync_at') or '-'}", flush=True)
+                print(f"tracked={int(existing_row.get('tracked') or 0)}", flush=True)
+            else:
+                emit(warning,args.output)
+    if creator_run_registry_command_service is not None:
+        cmd = creator_run_registry_command_service(
+            args,
+            provider=provider,
+            policy=policy,
+            batch_size=batch_size,
+            batch_sizes=batch_sizes,
+            include_typed_batch_sizes=False,
+        )
+    else:
+        cmd=["run",provider,args.creator,"--mode",mode,"--batch-size",str(batch_size),"--max-batches",str(args.max_batches if args.max_batches is not None else policy["processing"]["max_batches"]),"--max-runtime-minutes",str(args.max_runtime_minutes if args.max_runtime_minutes is not None else policy["processing"]["max_runtime_minutes"]),"--max-failures",str(args.max_failures if args.max_failures is not None else policy["processing"]["max_failures"]),"--sleep-between-batches",str(args.sleep_between_batches if args.sleep_between_batches is not None else policy["processing"]["sleep_between_batches"]),"--order",args.order or policy["filters"]["order"],"--output",args.output]
+        if args.stop_on_failure or policy["processing"].get("stop_on_failure"): cmd.append("--stop-on-failure")
+        for val,flag in ((args.since or policy["filters"].get("since"),"--since"),(args.until or policy["filters"].get("until"),"--until"),(args.rank_from or policy["filters"].get("rank_from"),"--rank-from"),(args.rank_to or policy["filters"].get("rank_to"),"--rank-to")):
+            if val is not None: cmd += [flag,str(val)]
     return registry(cmd)
 
 
 def add_creator(args: argparse.Namespace) -> int:
+    try:
+        from public_cli_creator_service import add_creator_instagram as add_creator_instagram_service
+    except ModuleNotFoundError:
+        add_creator_instagram_service = None
     provider = args.provider
     refresh_auth(provider)
     if provider == "instagram":
-        try:
-            import yaml  # type: ignore  # noqa: F401
-        except ImportError as exc:
-            raise RuntimeError('Instagram support is not installed. Run: python -m pip install "media2md[instagram]"') from exc
-        manager = ROOT / "scripts" / "manage_creators.py"
-        result = subprocess.run([sys.executable, str(manager), "add", args.creator], cwd=ROOT)
-        if result.returncode not in (0,):
-            # Existing creator is not a destructive error for an idempotent add command.
-            conn = sqlite3.connect(ROOT / "data" / "state.db") if (ROOT / "data" / "state.db").is_file() else None
-            exists = False
-            if conn:
-                try:
-                    exists = conn.execute("SELECT 1 FROM creators WHERE username=? COLLATE NOCASE", (args.creator.lstrip('@'),)).fetchone() is not None
-                finally:
-                    conn.close()
-            if not exists:
-                return result.returncode
+        normalized = normalize_creator(provider, args.creator)
+        creator_input = args.creator
+        if add_creator_instagram_service is not None:
+            code = add_creator_instagram_service(root=ROOT, creator_input=creator_input, normalized_creator=normalized)
+            if code != 0:
+                return code
+        else:
+            try:
+                import yaml  # type: ignore  # noqa: F401
+            except ImportError as exc:
+                raise RuntimeError('Instagram support is not installed. Run: python -m pip install "media2md[instagram]"') from exc
+            manager = ROOT / "scripts" / "manage_creators.py"
+            result = subprocess.run([sys.executable, str(manager), "add", args.creator], cwd=ROOT)
+            if result.returncode not in (0,):
+                # Existing creator is not a destructive error for an idempotent add command.
+                conn = sqlite3.connect(ROOT / "data" / "state.db") if (ROOT / "data" / "state.db").is_file() else None
+                exists = False
+                if conn:
+                    try:
+                        exists = conn.execute("SELECT 1 FROM creators WHERE username=? COLLATE NOCASE", (args.creator.lstrip('@'),)).fetchone() is not None
+                    finally:
+                        conn.close()
+                if not exists:
+                    return result.returncode
         registry(["migrate"])
-        print(f"CREATOR_ADDED provider=instagram creator={args.creator.lstrip('@')} sync_enabled=false")
+        print(f"CREATOR_ADDED provider=instagram creator={normalized} sync_enabled=false")
         return 0
     # For YouTube and TikTok, a full initial catalog establishes the platform identity.
     code = registry(["sync", provider, args.creator, "--mode", "full"])
