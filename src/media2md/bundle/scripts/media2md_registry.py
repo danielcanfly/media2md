@@ -19,6 +19,8 @@ import statistics
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from media2md.cli_result_types import cli_result
+from media2md.required_actions import validate_required_action
 
 from media2md_paths import require_command
 from media2md_runtime import operation_lock, safe_artifact_stem
@@ -69,6 +71,32 @@ def load_json(path: Path, default: Any) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return json.loads(json.dumps(default))
+
+
+def emit_cli_event(*, event: str, section: str, status: str, message: str, data: dict[str, Any]) -> None:
+    print(
+        json.dumps(
+            cli_result(
+                event=event,
+                section=section,
+                status=status,
+                message=message,
+                data=data,
+            ),
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
+
+
+def creator_run_event_status(status: str) -> str:
+    if status == "completed":
+        return "ok"
+    if status == "paused_runtime_limit":
+        return "timeout"
+    if status == "stopped_max_failures":
+        return "error"
+    return "warn"
 
 
 def _load_tiktok_cursor_state(handle: str) -> dict[str, Any]:
@@ -2782,15 +2810,26 @@ def _creator_run_summary(
             print(f"result_folder={markdown_root}")
             print(f"open_in_finder_hint=open \"{markdown_root}\"")
     else:
-        print(json.dumps({
-            "schema_version": 14, "event": "creator_run_completed",
-            "provider": provider, "creator": handle, "status": status,
-            "batches": batches, "processed": processed, "completed": completed,
-            "failures": failures, "remaining": max(0, remaining),
-            "latest_markdown_path": latest_markdown_path,
-            "markdown_root": str(markdown_root) if markdown_root else None,
-            "primary_output_surface": primary_output_surface,
-        }, ensure_ascii=False), flush=True)
+        emit_cli_event(
+            event="creator_run_completed",
+            section="run",
+            status=creator_run_event_status(status),
+            message=f"Creator run finished with status={status}",
+            data={
+                "provider": provider,
+                "creator": handle,
+                "run_status": status,
+                "status": status,
+                "batches": batches,
+                "processed": processed,
+                "completed": completed,
+                "failures": failures,
+                "remaining": max(0, remaining),
+                "latest_markdown_path": latest_markdown_path,
+                "markdown_root": str(markdown_root) if markdown_root else None,
+                "primary_output_surface": primary_output_surface,
+            },
+        )
 
 
 def _creator_markdown_root(provider: str, handle: str) -> Path:
@@ -2893,7 +2932,13 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
             if output == "human":
                 print("RUN_STOPPED reason=max_runtime")
             else:
-                print(json.dumps({"schema_version":12,"event":"run_stopped","reason":"max_runtime"}), flush=True)
+                emit_cli_event(
+                    event="run_stopped",
+                    section="run",
+                    status="timeout",
+                    message="Creator run stopped because the runtime limit was reached",
+                    data={"reason": "max_runtime"},
+                )
             break
 
         conn = connect()
@@ -2943,18 +2988,22 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
                 f"selected_media_ids={json.dumps(selected_media_ids)}"
             )
         else:
-            print(json.dumps({
-                "schema_version": 13,
-                "event": "batch_started",
-                "provider": provider,
-                "creator": handle,
-                "batch_number": batches,
-                "batch_count": estimated_batches,
-                "selected": len(rows),
-                "remaining_before": remaining_before,
-                "composition": composition,
-                "selected_media_ids": selected_media_ids,
-            }, ensure_ascii=False), flush=True)
+            emit_cli_event(
+                event="batch_started",
+                section="run",
+                status="ok",
+                message="Batch started",
+                data={
+                    "provider": provider,
+                    "creator": handle,
+                    "batch_number": batches,
+                    "batch_count": estimated_batches,
+                    "selected": len(rows),
+                    "remaining_before": remaining_before,
+                    "composition": composition,
+                    "selected_media_ids": selected_media_ids,
+                },
+            )
 
         for index, row in enumerate(rows, 1):
             if runtime_limit is not None and time.monotonic() - started >= runtime_limit:
@@ -3088,6 +3137,7 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
                 retryable = True if timed_out else (retryable_marker == "true" if retryable_marker else stage not in {"render", "validation"})
                 action_required = marker("action_required") == "true"
                 required_action = marker("required_action")
+                required_action = validate_required_action(required_action) if required_action else None
                 root_cause = marker("root_cause")
                 log_path = marker("log_path")
                 if timed_out:
@@ -3102,12 +3152,25 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
                             f"stage={stage} retryable=true error_code={error_code}"
                         )
                     else:
-                        print(json.dumps({
-                            "schema_version": 12, "event": "item_paused", "provider": provider, "creator": handle,
-                            "media_id": row["external_id"], "stage": stage, "error": error_text,
-                            "error_code": error_code, "retryable": True, "action_required": False,
-                            "required_action": None, "root_cause": root_cause, "log_path": log_path,
-                        }, ensure_ascii=False), flush=True)
+                        emit_cli_event(
+                            event="item_paused",
+                            section="process",
+                            status="timeout",
+                            message="Item paused because the remaining runtime budget was exhausted",
+                            data={
+                                "provider": provider,
+                                "creator": handle,
+                                "media_id": row["external_id"],
+                                "stage": stage,
+                                "error": error_text,
+                                "error_code": error_code,
+                                "retryable": True,
+                                "action_required": False,
+                                "required_action": None,
+                                "root_cause": root_cause,
+                                "log_path": log_path,
+                            },
+                        )
                 else:
                     failures += 1
                     conn.execute("UPDATE media SET status='failed',last_error=?,updated_at=? WHERE id=?", (error_text,iso_now(),row["id"]))
@@ -3122,10 +3185,25 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
                         if not root_cause:
                             print("error_tail=" + error_text.replace("\n", " ")[-1200:])
                     else:
-                        print(json.dumps({"schema_version":12,"event":"item_failed","provider":provider,"creator":handle,
-                                          "media_id":row["external_id"],"stage":stage,"error":error_text,"error_code":error_code,
-                                          "root_cause":root_cause,"log_path":log_path,"retryable":retryable,
-                                          "action_required":action_required,"required_action":required_action},ensure_ascii=False),flush=True)
+                        emit_cli_event(
+                            event="item_failed",
+                            section="process",
+                            status="warn" if action_required or retryable else "error",
+                            message="Item processing failed",
+                            data={
+                                "provider": provider,
+                                "creator": handle,
+                                "media_id": row["external_id"],
+                                "stage": stage,
+                                "error": error_text,
+                                "error_code": error_code,
+                                "root_cause": root_cause,
+                                "log_path": log_path,
+                                "retryable": retryable,
+                                "action_required": action_required,
+                                "required_action": required_action,
+                            },
+                        )
             conn.commit()
             conn.close()
 
@@ -3144,24 +3222,28 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
                     f"confidence={confidence}"
                 )
             else:
-                print(json.dumps({
-                    "schema_version":12,
-                    "event":"progress",
-                    "phase":"process",
-                    "provider":provider,
-                    "creator":handle,
-                    "batch_number":batches,
-                    "batch_count":estimated_batches,
-                    "current":index,
-                    "total":len(rows),
-                    "percent":percent,
-                    "processed_total":processed_total,
-                    "remaining_total":total_remaining,
-                    "batch_eta_seconds":round(batch_eta) if batch_eta is not None else None,
-                    "total_eta_seconds":round(total_eta) if total_eta is not None else None,
-                    "eta_confidence":confidence,
-                    "failures":failures,
-                }, ensure_ascii=False), flush=True)
+                emit_cli_event(
+                    event="progress",
+                    section="run",
+                    status="ok",
+                    message="Creator run progress updated",
+                    data={
+                        "phase": "process",
+                        "provider": provider,
+                        "creator": handle,
+                        "batch_number": batches,
+                        "batch_count": estimated_batches,
+                        "current": index,
+                        "total": len(rows),
+                        "percent": percent,
+                        "processed_total": processed_total,
+                        "remaining_total": total_remaining,
+                        "batch_eta_seconds": round(batch_eta) if batch_eta is not None else None,
+                        "total_eta_seconds": round(total_eta) if total_eta is not None else None,
+                        "eta_confidence": confidence,
+                        "failures": failures,
+                    },
+                )
 
             if runtime_paused:
                 _creator_run_summary(

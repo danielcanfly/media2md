@@ -22,6 +22,8 @@ from datetime import date, datetime, time as dt_time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
+from media2md.cli_result_types import cli_result
+from media2md.required_actions import validate_required_action
 
 from media2md_paths import command_path
 
@@ -364,6 +366,19 @@ def emit(payload: dict[str, Any], output: str) -> None:
         print(json.dumps(payload, ensure_ascii=False, sort_keys=True), flush=True)
 
 
+def emit_cli_event(*, event: str, section: str, status: str, message: str, data: dict[str, Any], output: str) -> None:
+    emit(
+        cli_result(
+            event=event,
+            section=section,
+            status=status,
+            message=message,
+            data=data,
+        ),
+        output,
+    )
+
+
 def parse_iso(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -513,7 +528,6 @@ def stream_engine(
                             else None
                         )
                         enriched = {
-                            "event": "progress",
                             "phase": "process",
                             "batch_number": batch_number,
                             "batch_count": batch_count,
@@ -534,7 +548,14 @@ def stream_engine(
                             "total_eta_seconds": round(total_eta) if total_eta is not None else None,
                             "eta_confidence": estimator.confidence(),
                         }
-                        emit(enriched, output)
+                        emit_cli_event(
+                            event="progress",
+                            section="progress",
+                            status="ok",
+                            message="Instagram processing progress update",
+                            data=enriched,
+                            output=output,
+                        )
                         if output == "human":
                             prefix = ""
                             if batch_number is not None and batch_count is not None:
@@ -560,7 +581,14 @@ def stream_engine(
                                     flush=True,
                                 )
                     elif phase in {"sync", "sync_complete", "quick_sync"}:
-                        emit({"event": "progress", **event}, output)
+                        emit_cli_event(
+                            event="progress",
+                            section="progress",
+                            status="ok",
+                            message="Instagram sync progress update",
+                            data=event,
+                            output=output,
+                        )
                         if output == "human" and phase == "sync":
                             page = event.get("page")
                             current = event.get("current")
@@ -723,7 +751,14 @@ def run_creator(args: argparse.Namespace) -> int:
         retry_failed=args.retry_failed,
     )
     if remaining <= 0:
-        emit({"event": "run_completed", "creator": username, "status": "no_work", "remaining": 0}, output)
+        emit_cli_event(
+            event="run_completed",
+            section="run",
+            status="ok",
+            message="Instagram creator run completed with no remaining work",
+            data={"creator": username, "status": "no_work", "remaining": 0},
+            output=output,
+        )
         if output == "human": print(msg("no_work", locale))
         return 0
 
@@ -736,16 +771,22 @@ def run_creator(args: argparse.Namespace) -> int:
     total_completed = 0
     batches_run = 0
     last_summary: dict[str, Any] = {}
-    emit({
-        "event": "run_started",
-        "creator": username,
-        "mode": mode,
-        "batch_size": batch_size,
-        "eligible_remaining": remaining,
-        "planned_batches": planned_batches,
-        "timezone": timezone_name,
-        "filters": {"since": since_local, "until": until_local, "rank_from": rank_from, "rank_to": rank_to, "order": order},
-    }, output)
+    emit_cli_event(
+        event="run_started",
+        section="run",
+        status="ok",
+        message="Instagram creator run started",
+        data={
+            "creator": username,
+            "mode": mode,
+            "batch_size": batch_size,
+            "eligible_remaining": remaining,
+            "planned_batches": planned_batches,
+            "timezone": timezone_name,
+            "filters": {"since": since_local, "until": until_local, "rank_from": rank_from, "rank_to": rank_to, "order": order},
+        },
+        output=output,
+    )
 
     while remaining > 0:
         if mode == "batch" and batches_run >= 1:
@@ -791,17 +832,23 @@ def run_creator(args: argparse.Namespace) -> int:
                 retry_failed=args.retry_failed,
             )
             save_performance_samples(username, run_estimator.samples)
-            emit({
-                "event": "run_interrupted",
-                "creator": username,
-                "mode": mode,
-                "batch_number": batches_run,
-                "batch_count": planned_batches,
-                "remaining": remaining,
-                "resume_supported": True,
-                "exit_code": 130,
-                "engine_log": summary.get("log"),
-            }, output)
+            emit_cli_event(
+                event="run_interrupted",
+                section="run",
+                status="warn",
+                message="Instagram creator run was interrupted safely",
+                data={
+                    "creator": username,
+                    "mode": mode,
+                    "batch_number": batches_run,
+                    "batch_count": planned_batches,
+                    "remaining": remaining,
+                    "resume_supported": True,
+                    "exit_code": 130,
+                    "engine_log": summary.get("log"),
+                },
+                output=output,
+            )
             if output == "human":
                 print(msg("interrupted", locale))
                 print(f"remaining={remaining}")
@@ -823,18 +870,24 @@ def run_creator(args: argparse.Namespace) -> int:
             oldest_first=oldest_first,
             retry_failed=args.retry_failed,
         )
-        emit({
-            "event": "batch_completed",
-            "creator": username,
-            "batch_number": batches_run,
-            "batch_count": planned_batches,
-            "return_code": code,
-            "completed": completed,
-            "failed": failed,
-            "remaining": remaining,
-            "report": summary.get("report"),
-            "engine_log": summary.get("log"),
-        }, output)
+        emit_cli_event(
+            event="batch_completed",
+            section="batch",
+            status="warn" if failed else "ok",
+            message="Instagram batch completed",
+            data={
+                "creator": username,
+                "batch_number": batches_run,
+                "batch_count": planned_batches,
+                "return_code": code,
+                "completed": completed,
+                "failed": failed,
+                "remaining": remaining,
+                "report": summary.get("report"),
+                "engine_log": summary.get("log"),
+            },
+            output=output,
+        )
         if code not in {0, 2}:
             break
         if failed and stop_on_failure:
@@ -848,16 +901,22 @@ def run_creator(args: argparse.Namespace) -> int:
 
     save_performance_samples(username, run_estimator.samples)
     stopped = remaining > 0 and (mode == "drain" or batches_run == 0)
-    emit({
-        "event": "run_completed",
-        "creator": username,
-        "mode": mode,
-        "batches_run": batches_run,
-        "failed": total_failed,
-        "remaining": remaining,
-        "status": "stopped" if stopped else "completed",
-        "elapsed_seconds": round(time.monotonic() - started, 1),
-    }, output)
+    emit_cli_event(
+        event="run_completed",
+        section="run",
+        status="warn" if total_failed else "ok",
+        message="Instagram creator run finished",
+        data={
+            "creator": username,
+            "mode": mode,
+            "batches_run": batches_run,
+            "failed": total_failed,
+            "remaining": remaining,
+            "status": "stopped" if stopped else "completed",
+            "elapsed_seconds": round(time.monotonic() - started, 1),
+        },
+        output=output,
+    )
     if output == "human":
         if stopped:
             print(msg("stopped", locale))
@@ -875,7 +934,8 @@ def run_creator(args: argparse.Namespace) -> int:
             examples = list(last_summary.get("errors") or [])[:3]
             for example in examples:
                 print(f"failure_example={str(example).replace(chr(10), ' ')[-1200:]}")
-            print("required_action=inspect_instagram_failure_report")
+            validated_required_action = validate_required_action("inspect_instagram_failure_report")
+            print(f"required_action={validated_required_action}")  # required_action=inspect_instagram_failure_report
     return 0 if total_failed == 0 else 2
 
 
@@ -921,8 +981,22 @@ def providers_list(args: argparse.Namespace) -> int:
     rows = provider_status()
     if args.output == "ndjson":
         for row in rows:
-            emit({"event": "provider", **row}, args.output)
-        emit({"event": "provider_list_completed", "count": len(rows)}, args.output)
+            emit_cli_event(
+                event="provider",
+                section="provider",
+                status="ok" if row.get("installed") else "warn",
+                message="Provider capability row",
+                data=row,
+                output=args.output,
+            )
+        emit_cli_event(
+            event="provider_list_completed",
+            section="provider",
+            status="ok",
+            message="Provider capability listing completed",
+            data={"count": len(rows)},
+            output=args.output,
+        )
         return 0
     print("PROVIDER   INSTALLED  CREATOR_SYNC  SINGLE_MEDIA  EXTRA")
     for row in rows:

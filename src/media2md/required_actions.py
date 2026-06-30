@@ -14,6 +14,7 @@ REQUIRED_ACTIONS: Final[frozenset[str]] = frozenset(
         "connect_tiktok_browser_profile",
         "connect_youtube_browser_profile",
         "inspect_instagram_access_error",
+        "inspect_instagram_failure_report",
         "inspect_render_error",
         "inspect_tiktok_access_error",
         "inspect_transcription_log",

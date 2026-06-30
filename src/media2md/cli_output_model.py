@@ -45,5 +45,6 @@ class CliOutputModel:
             "summary": self.summary,
             "sections": [section.as_dict() for section in self.sections],
         }
-        payload.update(self.data)
+        reserved = {"event", "schema", "status", "category", "summary", "sections"}
+        payload.update({key: value for key, value in self.data.items() if key not in reserved})
         return payload
