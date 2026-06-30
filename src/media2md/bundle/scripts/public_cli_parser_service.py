@@ -240,7 +240,8 @@ def add_common_creator_commands(
     del providers
     cs = creator_parser.add_subparsers(dest="creator_command", required=True)
 
-    add = cs.add_parser("add", help="Register a creator so it can be refreshed and processed later.")
+    add_help = "Register a creator URL or handle so it can be refreshed and processed later."
+    add = cs.add_parser("add", help=add_help, description=add_help)
     add.add_argument("creator")
     if default_provider_for_bare_handles is None:
         add.add_argument("--provider", choices=PROVIDER_CHOICES, help="Provider for bare handles such as @creator-name.")
@@ -251,20 +252,23 @@ def add_common_creator_commands(
     else:
         add.set_defaults(func=add_creator)
 
-    stat = cs.add_parser("status", help="Show tracked creator status, policy, and remaining work.")
+    status_help = "Show tracked creator status, source, policy, and remaining work."
+    stat = cs.add_parser("status", help=status_help, description=status_help)
     stat.add_argument("--provider", choices=PROVIDER_CHOICES)
     stat.add_argument("--creator")
     stat.add_argument("--output", choices=("human", "ndjson"), default="human")
     stat.set_defaults(func=creator_status)
 
-    listing = cs.add_parser("list", help="Alias of `creator status`.")
+    listing_help = "Alias of `creator status`."
+    listing = cs.add_parser("list", help=listing_help, description=listing_help)
     listing.add_argument("--provider", choices=PROVIDER_CHOICES)
     listing.add_argument("--creator")
     listing.add_argument("--output", choices=("human", "ndjson"), default="human")
     listing.set_defaults(func=creator_status)
 
     for name, enabled in (("sync-enable", True), ("sync-disable", False)):
-        command = cs.add_parser(name, help=f"{'Enable' if enabled else 'Disable'} scheduled catalog refresh for one creator.")
+        command_help = f"{'Enable' if enabled else 'Disable'} scheduled catalog refresh for one creator."
+        command = cs.add_parser(name, help=command_help, description=command_help)
         command.add_argument("creator")
         if default_provider_for_bare_handles is None:
             command.add_argument("--provider", choices=PROVIDER_CHOICES, help="Provider for bare handles such as @creator-name.")
@@ -278,20 +282,23 @@ def add_common_creator_commands(
         else:
             command.set_defaults(func=lambda a, e=enabled: set_policy(a, e))
 
-    sync = cs.add_parser("sync", help="Refresh the saved creator catalog. Kept for compatibility; prefer `refresh-catalog`.")
+    sync_help = "Refresh the saved creator catalog. Kept for compatibility; prefer `refresh-catalog`."
+    sync = cs.add_parser("sync", help=sync_help, description=sync_help)
     sync.add_argument("creator")
     sync.add_argument("--provider", choices=PROVIDER_CHOICES, help="Provider for bare handles such as @creator-name.")
     sync.add_argument("--force-full", action="store_true")
     sync.set_defaults(func=creator_sync)
 
     if include_refresh_catalog:
-        refresh = cs.add_parser("refresh-catalog", help="Refresh the saved creator catalog before reviewing status or running items.")
+        refresh_help = "Refresh the saved creator catalog before reviewing status or running items. For YouTube, this refreshes every configured surface."
+        refresh = cs.add_parser("refresh-catalog", help=refresh_help, description=refresh_help)
         refresh.add_argument("creator")
         refresh.add_argument("--provider", choices=PROVIDER_CHOICES, help="Provider for bare handles such as @creator-name.")
         refresh.add_argument("--force-full", action="store_true")
         refresh.set_defaults(func=creator_sync)
 
-    policy = cs.add_parser("policy-set", help="Update creator sync and processing policy in one command.")
+    policy_help = "Update creator sync and processing policy in one command."
+    policy = cs.add_parser("policy-set", help=policy_help, description=policy_help)
     _add_creator_policy_arguments(
         policy,
         parse_duration=parse_duration,
@@ -303,16 +310,19 @@ def add_common_creator_commands(
     else:
         policy.set_defaults(func=set_policy)
 
-    pshow = cs.add_parser("policy-show", help="Show the effective policy for one creator.")
+    pshow_help = "Show the effective policy for one creator."
+    pshow = cs.add_parser("policy-show", help=pshow_help, description=pshow_help)
     pshow.add_argument("creator")
     pshow.add_argument("--provider", choices=PROVIDER_CHOICES)
     pshow.add_argument("--output", choices=("human", "ndjson"), default="human")
     pshow.set_defaults(func=policy_show)
 
-    pgroup = cs.add_parser("policy", help="Grouped policy commands.")
+    pgroup_help = "Grouped policy commands."
+    pgroup = cs.add_parser("policy", help=pgroup_help, description=pgroup_help)
     psub = pgroup.add_subparsers(dest="policy_command", required=True)
 
-    pset = psub.add_parser("set", help="Update the saved policy for one creator.")
+    pset_help = "Update the saved policy for one creator."
+    pset = psub.add_parser("set", help=pset_help, description=pset_help)
     _add_creator_policy_arguments(
         pset,
         parse_duration=parse_duration,
@@ -324,13 +334,15 @@ def add_common_creator_commands(
     else:
         pset.set_defaults(func=set_policy)
 
-    pshow2 = psub.add_parser("show", help="Show the effective policy for one creator.")
+    pshow2_help = "Show the effective policy for one creator."
+    pshow2 = psub.add_parser("show", help=pshow2_help, description=pshow2_help)
     pshow2.add_argument("creator")
     pshow2.add_argument("--provider", choices=PROVIDER_CHOICES)
     pshow2.add_argument("--output", choices=("human", "ndjson"), default="human")
     pshow2.set_defaults(func=policy_show)
 
-    runp = cs.add_parser("run", help="Process queued items for one creator using the saved catalog and current policy.")
+    run_help = "Process queued items for one creator using the saved catalog and current policy."
+    runp = cs.add_parser("run", help=run_help, description=run_help)
     _add_creator_run_arguments(
         runp,
         include_typed_batch_sizes=include_typed_batch_sizes,
@@ -338,7 +350,8 @@ def add_common_creator_commands(
     )
     runp.set_defaults(func=creator_run)
 
-    delete = cs.add_parser("delete", help="Delete one tracked creator after confirmation.")
+    delete_help = "Delete one tracked creator after confirmation."
+    delete = cs.add_parser("delete", help=delete_help, description=delete_help)
     delete.add_argument("creator")
     delete.add_argument("--provider", choices=PROVIDER_CHOICES, required=True)
     delete.add_argument("--yes", action="store_true")

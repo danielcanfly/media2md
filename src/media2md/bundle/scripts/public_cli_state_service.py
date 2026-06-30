@@ -4,6 +4,7 @@ import json
 import sqlite3
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlsplit
 
 from media2md.cli_output_service import make_output_model, make_section
 from media2md.health_taxonomy import health_category, summarize_health
@@ -41,6 +42,28 @@ def registry_rows(registry_db: Path, *, include_youtube_totals: bool) -> list[di
     return [dict(row) for row in rows]
 
 
+def _youtube_surface_from_source_url(source_url: str | None) -> str:
+    path = urlsplit(str(source_url or "")).path.rstrip("/").lower()
+    for surface in ("videos", "shorts", "streams"):
+        if path.endswith(f"/{surface}"):
+            return surface
+    return "videos"
+
+
+def creator_catalog_metadata(
+    row: dict[str, Any],
+    *,
+    youtube_catalog_surfaces: Callable[[], tuple[str, ...]] | None = None,
+) -> dict[str, Any]:
+    metadata: dict[str, Any] = {"source_url": row.get("source_url")}
+    if row.get("provider") != "youtube":
+        return metadata
+    surfaces = tuple(youtube_catalog_surfaces() if youtube_catalog_surfaces is not None else ("videos", "shorts"))
+    metadata["catalog_surface"] = _youtube_surface_from_source_url(str(row.get("source_url") or ""))
+    metadata["catalog_surfaces"] = list(surfaces)
+    return metadata
+
+
 def render_creator_status(
     args,
     *,
@@ -51,11 +74,20 @@ def render_creator_status(
     normalize_batch_sizes: Callable[[Any], dict[str, int]] | None = None,
     include_youtube_breakdown: bool,
     include_batch_limits: bool,
+    youtube_catalog_surfaces: Callable[[], tuple[str, ...]] | None = None,
 ) -> int:
     if args.output == "ndjson":
         for row in rows:
             policy = effective_policy(row["provider"], row["handle"])
-            emit({"event": "creator_status", **row, "policy": policy}, args.output)
+            emit(
+                {
+                    "event": "creator_status",
+                    **row,
+                    **creator_catalog_metadata(row, youtube_catalog_surfaces=youtube_catalog_surfaces),
+                    "policy": policy,
+                },
+                args.output,
+            )
         emit({"event": "creator_status_completed", "count": len(rows)}, args.output)
         return 0
     if include_youtube_breakdown:
@@ -64,16 +96,27 @@ def render_creator_status(
         print("PLATFORM   CREATOR                    SYNC  EVERY  FULL  MODE   BATCH  TRACKED  DONE  LEFT  LAST SYNC")
     for row in rows:
         policy = effective_policy(row["provider"], row["handle"])
+        metadata = creator_catalog_metadata(row, youtube_catalog_surfaces=youtube_catalog_surfaces)
         if include_youtube_breakdown:
             totals = f"all:{row['current_total'] or 0}"
             if row["provider"] == "youtube":
                 totals += f",videos:{row['youtube_video_total'] or 0},shorts:{row['youtube_shorts_total'] or 0}"
+                if (row.get("youtube_streams_total") or 0) or "streams" in metadata.get("catalog_surfaces", []):
+                    totals += f",streams:{row['youtube_streams_total'] or 0}"
             print(
                 f"{row['provider']:<10} {row['handle'][:26]:<26} {str(policy['sync']['enabled']).lower():<5} "
                 f"{duration(policy['sync']['every_minutes']):<6} {duration(policy['sync']['full_every_minutes']):<5} "
                 f"{policy['processing']['mode']:<6} {row['tracked'] or 0:<8} {row['completed'] or 0:<5} "
                 f"{row['remaining'] or 0:<5} {totals}"
             )
+            if row["provider"] == "youtube":
+                print(
+                    f"  SOURCE surface={metadata['catalog_surface']} "
+                    f"catalog_surfaces={','.join(metadata['catalog_surfaces'])} "
+                    f"url={metadata.get('source_url') or '-'}"
+                )
+            else:
+                print(f"  SOURCE url={metadata.get('source_url') or '-'}")
             if include_batch_limits and normalize_batch_sizes is not None:
                 sizes = normalize_batch_sizes(policy["processing"].get("batch_sizes"))
                 batch_text = ",".join(f"{key}={value}" for key, value in sizes.items() if value)

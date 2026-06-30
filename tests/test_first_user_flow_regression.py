@@ -207,6 +207,15 @@ def test_first_user_creator_add_runs_initial_full_sync_and_reports_creator(monke
     monkeypatch.setattr(public_cli, "normalize_creator", lambda provider, value: "creator-name")
     recorded: list[list[str]] = []
     monkeypatch.setattr(public_cli, "registry", lambda args: recorded.append(args) or 0)
+    monkeypatch.setattr(
+        public_cli,
+        "registry_rows",
+        lambda: [{
+            "provider": "youtube",
+            "handle": "creator-name",
+            "source_url": "https://www.youtube.com/@creator-name/shorts",
+        }],
+    )
 
     args = _FakeArgs(creator="@creator-name", provider="youtube")
     result = public_cli.add_creator(args)
@@ -214,6 +223,9 @@ def test_first_user_creator_add_runs_initial_full_sync_and_reports_creator(monke
     assert result == 0
     assert recorded == [["sync", "youtube", "@creator-name", "--mode", "full"]]
     assert "CREATOR_ADDED provider=youtube creator=creator-name sync_enabled=false" in out
+    assert "catalog_surface=shorts" in out
+    assert "catalog_surfaces=videos,shorts" in out
+    assert "catalog_url=https://www.youtube.com/@creator-name/shorts" in out
 
 
 def test_first_user_instagram_creator_add_runs_migration_and_reports_creator(monkeypatch, capsys):
@@ -354,6 +366,53 @@ def test_first_user_public_cli_refresh_catalog_alias_exists():
     assert args.command == "creator"
     assert args.creator_command == "refresh-catalog"
     assert args.provider == "youtube"
+
+
+def test_first_user_creator_status_human_output_includes_youtube_source_and_surfaces(monkeypatch, capsys):
+    monkeypatch.setattr(
+        public_cli,
+        "registry_rows",
+        lambda: [{
+            "provider": "youtube",
+            "handle": "creator-name",
+            "source_url": "https://www.youtube.com/@creator-name/shorts",
+            "current_total": 12,
+            "current_total_exact": 1,
+            "youtube_video_total": 5,
+            "youtube_video_total_exact": 1,
+            "youtube_shorts_total": 7,
+            "youtube_shorts_total_exact": 1,
+            "youtube_streams_total": 0,
+            "youtube_streams_total_exact": 0,
+            "tracked": 12,
+            "completed": 3,
+            "remaining": 9,
+            "last_sync_mode": "full",
+            "last_sync_at": "2026-06-30T00:00:00+00:00",
+            "last_full_sync_at": "2026-06-30T00:00:00+00:00",
+            "last_full_exact_total": 12,
+            "last_full_exact_at": "2026-06-30T00:00:00+00:00",
+            "last_full_youtube_video_total": 5,
+            "last_full_youtube_shorts_total": 7,
+            "last_full_youtube_streams_total": 0,
+        }],
+    )
+    monkeypatch.setattr(
+        public_cli,
+        "effective_policy",
+        lambda provider, creator: {
+            "sync": {"enabled": True, "every_minutes": 60, "full_every_minutes": 1440},
+            "processing": {"mode": "batch", "batch_sizes": {"youtube_short": 30}},
+            "filters": {},
+        },
+    )
+
+    args = _FakeArgs(provider="youtube", creator="@creator-name", output="human")
+    result = public_cli.creator_status(args)
+    out = capsys.readouterr().out
+    assert result == 0
+    assert "SOURCE surface=shorts catalog_surfaces=videos,shorts" in out
+    assert "url=https://www.youtube.com/@creator-name/shorts" in out
 
 
 def test_first_user_runtime_status_reports_managed_paths(monkeypatch, tmp_path, capsys):

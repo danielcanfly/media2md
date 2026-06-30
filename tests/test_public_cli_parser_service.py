@@ -124,8 +124,11 @@ def test_add_common_creator_commands_media2md_shape():
     help_text = creator.format_help().lower()
     assert "refresh the saved creator catalog" in help_text
     assert "prefer `refresh-catalog`" in help_text
+    status_help = _find_subparser(creator, "status").format_help().lower()
+    assert "source, policy, and remaining work" in status_help
     refresh_help = _find_subparser(creator, "refresh-catalog").format_help().lower()
     assert "provider for bare handles" in refresh_help
+    assert "every configured surface" in refresh_help
 
 
 def test_add_common_creator_commands_social2md_shape():

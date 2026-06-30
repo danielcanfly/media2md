@@ -4,7 +4,9 @@ from media2md.results import HealthResult
 from media2md.bundle.scripts.public_cli_state_service import (
     agent_status_payload,
     apply_settings_updates,
+    creator_catalog_metadata,
     provider_auth_rows,
+    render_creator_status,
     settings_payload,
     system_status_payload,
 )
@@ -143,3 +145,53 @@ def test_agent_status_payload_keeps_schema_version():
     assert payload["ndjson_schema_version"] == 13
     assert payload["permissions"] == {"mode": "strict"}
     assert "creator run" in payload["commands"]["write"]
+
+
+def test_creator_catalog_metadata_derives_youtube_surface_and_configured_surfaces():
+    metadata = creator_catalog_metadata(
+        {"provider": "youtube", "source_url": "https://www.youtube.com/@creator-name/shorts"},
+        youtube_catalog_surfaces=lambda: ("videos", "shorts", "streams"),
+    )
+    assert metadata["source_url"] == "https://www.youtube.com/@creator-name/shorts"
+    assert metadata["catalog_surface"] == "shorts"
+    assert metadata["catalog_surfaces"] == ["videos", "shorts", "streams"]
+
+
+def test_render_creator_status_ndjson_includes_youtube_catalog_metadata():
+    emitted = []
+
+    class _Args:
+        output = "ndjson"
+
+    result = render_creator_status(
+        _Args(),
+        rows=[{
+            "provider": "youtube",
+            "handle": "creator-name",
+            "source_url": "https://www.youtube.com/@creator-name/shorts",
+            "current_total": 12,
+            "current_total_exact": 1,
+            "youtube_video_total": 5,
+            "youtube_video_total_exact": 1,
+            "youtube_shorts_total": 7,
+            "youtube_shorts_total_exact": 1,
+            "youtube_streams_total": 0,
+            "youtube_streams_total_exact": 0,
+            "tracked": 12,
+            "completed": 0,
+            "remaining": 12,
+            "last_full_exact_total": 12,
+            "last_full_exact_at": "2026-06-30T00:00:00+00:00",
+        }],
+        effective_policy=lambda provider, creator: {"sync": {"enabled": True, "every_minutes": 60, "full_every_minutes": 1440}, "processing": {"mode": "batch", "batch_sizes": {}}, "filters": {}},
+        emit=lambda payload, output: emitted.append(payload),
+        duration=lambda minutes: f"{minutes}m",
+        normalize_batch_sizes=lambda value: dict(value or {}),
+        include_youtube_breakdown=True,
+        include_batch_limits=True,
+        youtube_catalog_surfaces=lambda: ("videos", "shorts"),
+    )
+    assert result == 0
+    assert emitted[0]["catalog_surface"] == "shorts"
+    assert emitted[0]["catalog_surfaces"] == ["videos", "shorts"]
+    assert emitted[0]["source_url"] == "https://www.youtube.com/@creator-name/shorts"

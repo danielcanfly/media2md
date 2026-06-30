@@ -251,6 +251,8 @@ def registry_rows() -> list[dict[str, Any]]:
 
 def creator_status(args: argparse.Namespace) -> int:
     render_creator_status_service = optional_attr("public_cli_state_service", "render_creator_status")
+    creator_catalog_metadata_service = optional_attr("public_cli_state_service", "creator_catalog_metadata")
+    youtube_catalog_surfaces_service = optional_attr("media2md_registry", "youtube_catalog_surfaces")
     rows=registry_rows(); policies=load_policies()["creators"]
     if args.provider: rows=[r for r in rows if r["provider"]==args.provider]
     if args.creator:
@@ -267,11 +269,17 @@ def creator_status(args: argparse.Namespace) -> int:
             normalize_batch_sizes=normalize_batch_sizes,
             include_youtube_breakdown=True,
             include_batch_limits=True,
+            youtube_catalog_surfaces=youtube_catalog_surfaces_service,
         )
     if args.output=="ndjson":
         for row in rows:
             policy=effective_policy(row["provider"],row["handle"])
-            emit({"event":"creator_status",**row,"policy":policy},args.output)
+            metadata = (
+                creator_catalog_metadata_service(row, youtube_catalog_surfaces=youtube_catalog_surfaces_service)
+                if creator_catalog_metadata_service is not None
+                else {"source_url": row.get("source_url")}
+            )
+            emit({"event":"creator_status",**row,**metadata,"policy":policy},args.output)
         emit({"event":"creator_status_completed","count":len(rows)},args.output); return 0
     print("PLATFORM   CREATOR                    SYNC  EVERY  FULL  MODE   TRACKED  DONE  LEFT  TOTALS")
     for row in rows:
@@ -280,7 +288,24 @@ def creator_status(args: argparse.Namespace) -> int:
         totals = f"all:{row['current_total'] or 0}"
         if row["provider"] == "youtube":
             totals += f",videos:{row['youtube_video_total'] or 0},shorts:{row['youtube_shorts_total'] or 0}"
+            metadata = (
+                creator_catalog_metadata_service(row, youtube_catalog_surfaces=youtube_catalog_surfaces_service)
+                if creator_catalog_metadata_service is not None
+                else {"source_url": row.get("source_url"), "catalog_surface": "videos", "catalog_surfaces": ["videos", "shorts"]}
+            )
+            if (row.get("youtube_streams_total") or 0) or "streams" in metadata.get("catalog_surfaces", []):
+                totals += f",streams:{row['youtube_streams_total'] or 0}"
+        else:
+            metadata = (
+                creator_catalog_metadata_service(row, youtube_catalog_surfaces=youtube_catalog_surfaces_service)
+                if creator_catalog_metadata_service is not None
+                else {"source_url": row.get("source_url")}
+            )
         print(f"{row['provider']:<10} {row['handle'][:26]:<26} {str(p['sync']['enabled']).lower():<5} {duration(p['sync']['every_minutes']):<6} {duration(p['sync']['full_every_minutes']):<5} {p['processing']['mode']:<6} {row['tracked'] or 0:<8} {row['completed'] or 0:<5} {row['remaining'] or 0:<5} {totals}")
+        if row["provider"] == "youtube":
+            print(f"  SOURCE surface={metadata['catalog_surface']} catalog_surfaces={','.join(metadata['catalog_surfaces'])} url={metadata.get('source_url') or '-'}")
+        else:
+            print(f"  SOURCE url={metadata.get('source_url') or '-'}")
         batch_text = ",".join(f"{key}={value}" for key,value in sizes.items() if value)
         print(f"  BATCH_LIMITS {batch_text}")
         print(
@@ -608,6 +633,8 @@ def creator_run(args: argparse.Namespace) -> int:
 
 def add_creator(args: argparse.Namespace) -> int:
     add_creator_instagram_service = optional_attr("public_cli_creator_service", "add_creator_instagram")
+    creator_catalog_metadata_service = optional_attr("public_cli_state_service", "creator_catalog_metadata")
+    youtube_catalog_surfaces_service = optional_attr("media2md_registry", "youtube_catalog_surfaces")
     provider = args.provider
     refresh_auth(provider)
     if provider == "instagram":
@@ -642,7 +669,19 @@ def add_creator(args: argparse.Namespace) -> int:
     # For YouTube and TikTok, a full initial catalog establishes the platform identity.
     code = registry(["sync", provider, args.creator, "--mode", "full"])
     if code == 0:
-        print(f"CREATOR_ADDED provider={provider} creator={normalize_creator(provider,args.creator)} sync_enabled=false")
+        normalized_creator = normalize_creator(provider,args.creator)
+        print(f"CREATOR_ADDED provider={provider} creator={normalized_creator} sync_enabled=false")
+        row = next(
+            (item for item in registry_rows() if item["provider"] == provider and str(item["handle"]).lower() == normalized_creator.lower()),
+            None,
+        )
+        if row is not None and creator_catalog_metadata_service is not None:
+            metadata = creator_catalog_metadata_service(row, youtube_catalog_surfaces=youtube_catalog_surfaces_service)
+            if provider == "youtube":
+                print(f"catalog_surface={metadata['catalog_surface']}")
+                print(f"catalog_surfaces={','.join(metadata['catalog_surfaces'])}")
+            if metadata.get("source_url"):
+                print(f"catalog_url={metadata['source_url']}")
     return code
 
 
