@@ -67,7 +67,11 @@ def _youtube_creator_target(path: str, *, scheme: str = "https", netloc: str = "
 
 
 def _instagram_surface_and_code(text: str) -> tuple[str, str] | None:
-    match = re.search(r"instagram\.com/(reel|reels|p|tv)/([A-Za-z0-9_-]+)", text, re.I)
+    match = re.search(
+        r"instagram\.com/(?:[A-Za-z0-9._]+/)?(reel|reels|p|tv)/([A-Za-z0-9_-]+)",
+        text,
+        re.I,
+    )
     if not match:
         return None
     raw_surface = match.group(1).lower()

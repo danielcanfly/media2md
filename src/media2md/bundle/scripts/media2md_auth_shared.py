@@ -5,7 +5,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
+def _project_root() -> Path:
+    explicit = os.environ.get("MEDIA2MD_PROJECT_ROOT")
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+    return Path(__file__).resolve().parents[1]
+
+ROOT = _project_root()
 AUTH_PROFILES = ROOT / "config" / "auth_profiles.json"
 SECRET_DIR = ROOT / "data" / "secrets"
 DOMAINS = {"instagram": (".instagram.com",), "tiktok": (".tiktok.com",), "youtube": (".youtube.com", ".google.com")}

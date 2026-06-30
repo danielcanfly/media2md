@@ -11,7 +11,14 @@ from datetime import timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-ROOT = Path(__file__).resolve().parents[1]
+def _project_root() -> Path:
+    explicit = os.environ.get("MEDIA2MD_PROJECT_ROOT")
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+    return Path(__file__).resolve().parents[1]
+
+
+ROOT = _project_root()
 COOKIE_FILE = ROOT / "data" / "secrets" / "instagram-cookies.txt"
 
 

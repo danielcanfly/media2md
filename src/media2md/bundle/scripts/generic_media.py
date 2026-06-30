@@ -40,7 +40,14 @@ try:
 except ModuleNotFoundError:
     from media2md_contract_compat import validate_required_action
 
-ROOT = Path(__file__).resolve().parents[1]
+def _project_root() -> Path:
+    explicit = os.environ.get("MEDIA2MD_PROJECT_ROOT")
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+    return Path(__file__).resolve().parents[1]
+
+
+ROOT = _project_root()
 DB = ROOT / "data" / "social2md_media.db"
 CONFIG = ROOT / "config" / "social2md.json"
 AUTH_PROFILES = ROOT / "config" / "auth_profiles.json"
@@ -699,9 +706,34 @@ def _inspect_instagram_gallery(url: str, target: Any, creator: str | None) -> di
     if cookie_file.is_file(): cmd += ["--cookies",str(cookie_file)]
     cmd += ["--resolve-json",url]
     result=run(cmd,timeout=300); payload=json.loads(result.stdout); metadata=None
+    assets: list[dict[str, Any]] = []
     if isinstance(payload,list):
         for event in payload:
-            if isinstance(event,list) and len(event)>=3 and isinstance(event[2],dict): metadata=event[2]; break
+            if not (isinstance(event, list) and len(event) >= 3 and isinstance(event[2], dict)):
+                continue
+            event_type = event[0]
+            event_url = str(event[1] or "")
+            item = event[2]
+            if metadata is None:
+                metadata = item
+            if event_type != 3:
+                continue
+            display_url = str(item.get("display_url") or event_url or "").strip()
+            video_url = str(item.get("video_url") or "").strip()
+            extension = str(item.get("extension") or "").strip().lower()
+            is_video = bool(video_url) or extension in {"mp4", "mov", "m4v", "webm"}
+            asset_url = video_url if is_video and video_url else display_url or event_url
+            if not asset_url:
+                continue
+            assets.append({
+                "index": int(item.get("num") or len(assets) + 1),
+                "kind": "video" if is_video else "image",
+                "source_url": asset_url,
+                "display_url": display_url or asset_url,
+                "width": item.get("width"),
+                "height": item.get("height"),
+                "ocr_candidate": not is_video,
+            })
     if not metadata: raise RuntimeError("gallery-dl returned no Instagram metadata.")
     external_id=str(metadata.get("post_shortcode") or metadata.get("shortcode") or target.media_id or "")
     handle=str(metadata.get("username") or (metadata.get("owner") or {}).get("username") or creator or "unknown")
@@ -709,15 +741,17 @@ def _inspect_instagram_gallery(url: str, target: Any, creator: str | None) -> di
     if surface == "reel":
         media_type = "instagram_reel"
     else:
-        sidecar_count = int(metadata.get("sidecar_count") or 0)
-        image_count = int(metadata.get("image_count") or 0)
-        media_type = "instagram_carousel" if max(sidecar_count, image_count, 0) > 1 else "instagram_post"
+        sidecar_count = int(metadata.get("sidecar_count") or metadata.get("count") or 0)
+        image_count = len([item for item in assets if str(item.get("kind") or "") == "image"])
+        video_count = len([item for item in assets if str(item.get("kind") or "") == "video"])
+        asset_count = len(assets)
+        media_type = "instagram_carousel" if max(sidecar_count, image_count, video_count, asset_count, 0) > 1 else "instagram_post"
     return {"provider":"instagram","external_id":external_id,"creator":handle,"creator_external_id":str(metadata.get("owner_id") or metadata.get("user_id") or handle),
             "creator_identifiers":{"user_id": str(metadata.get("owner_id") or metadata.get("user_id") or "")},
             "creator_display_name":handle,"title":f"Instagram {'Reel' if media_type == 'instagram_reel' else 'Post'} {external_id}","description":str(metadata.get("description") or ""),
             "published_at":str(metadata.get("post_date") or metadata.get("date") or "") or None,"duration_seconds":metadata.get("duration") if media_type == "instagram_reel" else None,"source_url":url,
             "surface":surface,
-            "media_type":media_type,"processing_class":media_type,
+            "media_type":media_type,"processing_class":media_type,"assets": assets,
             "backend_used":"gallery-dl"}
 
 
@@ -901,7 +935,13 @@ def inspect(value: str, provider: str | None = None, creator: str | None = None)
         creator_external_id=channel_id or uploader_id or handle
     external_id=str(data.get("id") or target.media_id or "")
     if not external_id: raise RuntimeError("Metadata did not contain a media id.")
-    media_type = infer_media_type(provider, original_value)
+    hinted_media_type: str | None = None
+    if provider == "instagram":
+        if str(target.surface or "") == "post":
+            hinted_media_type = "instagram_post"
+        elif str(target.surface or "") == "tv":
+            hinted_media_type = "instagram_reel"
+    media_type = infer_media_type(provider, url, hinted=hinted_media_type)
     item_class = processing_class(
         media_type,
         data.get("duration"),
@@ -1853,7 +1893,7 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
                 "markdown_path=?, markdown_sha256=?, completed_at=?, updated_at=?, last_error=NULL WHERE id=?",
                 (creator, canonical_source, processed_duration, str(final.relative_to(ROOT)), digest, iso_now(), iso_now(), row["id"]),
             )
-            conn.commit()
+        conn.commit()
         updated_row = conn.execute("SELECT * FROM media WHERE id=?", (row["id"],)).fetchone()
         if updated_row:
             sync_registry(provider, external_id, updated_row)
@@ -1882,7 +1922,9 @@ def add(url: str, process_now: bool, output: str, provider: str | None = None, c
           creator=excluded.creator, title=excluded.title, description=excluded.description,
           source_url=excluded.source_url, published_at=excluded.published_at,
           duration_seconds=excluded.duration_seconds, media_type=excluded.media_type,
-          processing_class=excluded.processing_class, updated_at=excluded.updated_at
+          processing_class=excluded.processing_class, status='pending', last_error=NULL,
+          markdown_path=NULL, markdown_sha256=NULL, completed_at=NULL,
+          updated_at=excluded.updated_at
     """, (
         metadata["provider"], metadata["external_id"], metadata["creator"], metadata["title"], metadata["description"],
         metadata["source_url"], metadata["published_at"], metadata["duration_seconds"], metadata["media_type"], metadata["processing_class"], now, now,
@@ -1982,7 +2024,9 @@ def _process_registered_unlocked(provider: str, external_id: str, output: str) -
              creator=excluded.creator, title=excluded.title, description=excluded.description,
              source_url=excluded.source_url, published_at=excluded.published_at,
              duration_seconds=excluded.duration_seconds, media_type=excluded.media_type,
-             processing_class=excluded.processing_class, updated_at=excluded.updated_at""",
+             processing_class=excluded.processing_class, status='pending', last_error=NULL,
+             markdown_path=NULL, markdown_sha256=NULL, completed_at=NULL,
+             updated_at=excluded.updated_at""",
         (metadata["provider"], metadata["external_id"], metadata["creator"], metadata["title"], metadata["description"],
          metadata["source_url"], metadata["published_at"], metadata["duration_seconds"], metadata["media_type"], metadata["processing_class"], now, now),
     )
