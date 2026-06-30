@@ -19,14 +19,96 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if sys.path and sys.path[0] == _SCRIPT_DIR:
     sys.path.append(sys.path.pop(0))
 
+def _fallback_make_section(
+    name: str,
+    *,
+    status: str,
+    message: str | None = None,
+    data: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    normalized = str(status or "error").strip().lower() or "error"
+    if normalized == "ok":
+        category = "ready"
+    elif normalized in {"warn", "missing"}:
+        category = "action_required"
+    else:
+        category = "degraded"
+    return {
+        "name": name,
+        "status": normalized,
+        "category": category,
+        "message": message,
+        "data": dict(data or {}),
+    }
+
+
+def _fallback_make_output_model(
+    *,
+    event: str,
+    schema: str,
+    sections: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
+    summary: str | None = None,
+    data: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    section_items = [dict(section) for section in sections]
+    statuses = [str(section.get("status") or "error").strip().lower() for section in section_items]
+    rank = {"ok": 0, "warn": 1, "missing": 2, "timeout": 3, "broken": 4, "error": 5}
+    worst = max(statuses, key=lambda value: rank.get(value, 5), default="ok")
+    if worst == "ok":
+        category = "ready"
+    elif worst in {"warn", "missing"}:
+        category = "action_required"
+    else:
+        category = "degraded"
+    payload = {
+        "event": event,
+        "schema": schema,
+        "status": worst,
+        "category": category,
+        "summary": summary,
+        "sections": section_items,
+    }
+    reserved = {"event", "schema", "status", "category", "summary", "sections"}
+    for key, value in (data or {}).items():
+        if key not in reserved:
+            payload[key] = value
+    return payload
+
+
+def _fallback_cli_result(
+    *,
+    event: str,
+    section: str,
+    status: str,
+    message: str,
+    data: dict[str, Any],
+    schema: str | None = None,
+) -> dict[str, Any]:
+    return _fallback_make_output_model(
+        event=event,
+        schema=schema or f"media2md.cli.{event}/v1",
+        summary=message,
+        sections=(
+            _fallback_make_section(section, status=status, message=message, data=data),
+        ),
+        data=data,
+    )
+
 try:
     from media2md.cli_result_types import cli_result
 except ModuleNotFoundError:
-    from media2md_contract_compat import cli_result
+    try:
+        from media2md_contract_compat import cli_result
+    except ModuleNotFoundError:
+        cli_result = _fallback_cli_result
 try:
     from media2md.cli_output_service import make_output_model, make_section
 except ModuleNotFoundError:
-    from media2md_contract_compat import make_output_model, make_section
+    try:
+        from media2md_contract_compat import make_output_model, make_section
+    except ModuleNotFoundError:
+        make_output_model = _fallback_make_output_model
+        make_section = _fallback_make_section
 
 from creator_run_shared import prepare_catalog_for_creator_run
 from media2md_types import DEFAULT_BATCH_SIZES, normalize_batch_sizes, parse_batch_size_assignments
