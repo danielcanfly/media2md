@@ -51,3 +51,4 @@ class ProviderResolutionResult:
     canonical_url: str
     creator: str | None = None
     media_id: str | None = None
+    surface: str | None = None

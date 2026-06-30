@@ -52,4 +52,5 @@ def resolve_creator_target(
         canonical_url=normalized.canonical_url,
         creator=normalized.creator,
         media_id=normalized.media_id,
+        surface=normalized.surface,
     )

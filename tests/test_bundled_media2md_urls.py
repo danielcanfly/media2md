@@ -27,5 +27,6 @@ def test_bundled_normalize_creator_matches_public_youtube_canonical_url():
 def test_bundled_normalize_creator_matches_current_public_surface_canonicalization():
     module = _load_module()
     result = module.normalize_creator("youtube", "https://www.youtube.com/@creator-name/shorts")
-    assert result.canonical_url == "https://www.youtube.com/@creator-name/videos"
+    assert result.canonical_url == "https://www.youtube.com/@creator-name/shorts"
     assert result.creator == "creator-name"
+    assert result.surface == "shorts"

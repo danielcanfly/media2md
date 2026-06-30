@@ -120,9 +120,9 @@ def test_provider_does_not_claim_other_provider_urls():
 
 def test_provider_creator_resolution():
     expected = {
-        "instagram": ("https://www.instagram.com/creator.name/reels/", "creator.name"),
-        "youtube": ("https://www.youtube.com/@creator-name/videos", "creator-name"),
-        "tiktok": ("https://www.tiktok.com/@creator_name", "creator_name"),
+        "instagram": ("https://www.instagram.com/creator.name/reels/", "creator.name", None),
+        "youtube": ("https://www.youtube.com/@creator-name/videos", "creator-name", "videos"),
+        "tiktok": ("https://www.tiktok.com/@creator_name", "creator_name", None),
     }
     inputs = {
         "instagram": "@creator.name",
@@ -131,12 +131,23 @@ def test_provider_creator_resolution():
     }
     for adapter in all_provider_adapters():
         result = adapter.resolve_creator_input(inputs[adapter.name])
-        canonical_url, creator = expected[adapter.name]
+        canonical_url, creator, surface = expected[adapter.name]
         assert result.provider == adapter.name
         assert result.kind == "creator"
         assert result.canonical_url == canonical_url
         assert result.creator == creator
         assert result.media_id is None
+        assert result.surface == surface
+
+
+def test_youtube_provider_resolution_preserves_surface_specific_urls():
+    adapter = provider_adapter("youtube")
+    assert adapter is not None
+    result = adapter.resolve_creator_input("https://www.youtube.com/@creator-name/streams")
+    assert result.provider == "youtube"
+    assert result.creator == "creator-name"
+    assert result.canonical_url == "https://www.youtube.com/@creator-name/streams"
+    assert result.surface == "streams"
 
 
 def test_provider_resolution_matches_shared_resolution_path():

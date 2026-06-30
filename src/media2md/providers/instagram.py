@@ -24,6 +24,7 @@ class InstagramAdapter(ProviderAdapter):
             canonical_url=normalized.canonical_url,
             creator=normalized.creator,
             media_id=normalized.media_id,
+            surface=normalized.surface,
         )
 
     def health_check(self) -> HealthResult:

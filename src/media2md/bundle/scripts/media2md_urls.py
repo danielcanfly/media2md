@@ -19,6 +19,10 @@ class NormalizedTarget:
     canonical_url: str
     creator: str | None = None
     media_id: str | None = None
+    surface: str | None = None
+
+
+YOUTUBE_CREATOR_SURFACES = ("videos", "shorts", "streams")
 
 
 def detect_provider(value: str) -> str | None:
@@ -44,6 +48,23 @@ def _clean_handle(value: str) -> str:
     return handle
 
 
+def _youtube_surface_for_path(path: str) -> str:
+    lowered = str(path).rstrip("/").lower()
+    for surface in YOUTUBE_CREATOR_SURFACES:
+        if lowered.endswith(f"/{surface}"):
+            return surface
+    return "videos"
+
+
+def _youtube_creator_target(path: str, *, scheme: str = "https", netloc: str = "www.youtube.com") -> NormalizedTarget:
+    cleaned_path = str(path).rstrip("/")
+    surface = _youtube_surface_for_path(cleaned_path)
+    base_path = re.sub(r"/(videos|shorts|streams)$", "", cleaned_path, flags=re.I)
+    canonical_url = urlunsplit((scheme or "https", netloc or "www.youtube.com", f"{base_path}/{surface}", "", ""))
+    creator = base_path.split("/")[-1].lstrip("@") or "youtube-channel"
+    return NormalizedTarget("youtube", "creator", canonical_url, creator=creator, surface=surface)
+
+
 def normalize_creator(provider: str, value: str) -> NormalizedTarget:
     provider = provider.lower()
     text = value.strip()
@@ -62,28 +83,23 @@ def normalize_creator(provider: str, value: str) -> NormalizedTarget:
     if provider == "youtube":
         if text.startswith("@") and "/" not in text:
             handle = _clean_handle(text)
-            return NormalizedTarget(provider, "creator", f"https://www.youtube.com/@{handle}/videos", creator=handle)
+            return NormalizedTarget(provider, "creator", f"https://www.youtube.com/@{handle}/videos", creator=handle, surface="videos")
         match = re.search(r"youtube\.com/@([^/?#]+)", text, re.I)
         if match:
-            handle = _clean_handle(match.group(1))
-            return NormalizedTarget(provider, "creator", f"https://www.youtube.com/@{handle}/videos", creator=handle)
+            path = urlsplit(text).path or f"/@{match.group(1)}"
+            return _youtube_creator_target(path, scheme=urlsplit(text).scheme or "https", netloc=urlsplit(text).netloc or "www.youtube.com")
         channel = re.search(r"youtube\.com/channel/([^/?#]+)", text, re.I)
         if channel:
-            channel_id = channel.group(1)
-            return NormalizedTarget(provider, "creator", f"https://www.youtube.com/channel/{channel_id}/videos", creator=channel_id)
+            path = urlsplit(text).path or f"/channel/{channel.group(1)}"
+            return _youtube_creator_target(path, scheme=urlsplit(text).scheme or "https", netloc=urlsplit(text).netloc or "www.youtube.com")
         if "youtube.com" not in text and "youtu.be" not in text:
             handle = _clean_handle(text)
-            return NormalizedTarget(provider, "creator", f"https://www.youtube.com/@{handle}/videos", creator=handle)
+            return NormalizedTarget(provider, "creator", f"https://www.youtube.com/@{handle}/videos", creator=handle, surface="videos")
         parts = urlsplit(text)
         path = parts.path.rstrip("/")
         if any(token in path for token in ("/watch", "/shorts/", "/live/")) or parts.netloc.lower().endswith("youtu.be"):
             raise ValueError("Expected a YouTube channel, not a media URL.")
-        base_path = re.sub(r"/(videos|shorts|streams)$", "", path, flags=re.I)
-        canonical = urlunsplit((parts.scheme or "https", parts.netloc or "www.youtube.com", path, "", ""))
-        if not canonical.endswith(("/videos", "/shorts", "/streams")):
-            canonical += "/videos"
-        creator = base_path.split("/")[-1].lstrip("@") or "youtube-channel"
-        return NormalizedTarget(provider, "creator", canonical, creator=creator)
+        return _youtube_creator_target(path, scheme=parts.scheme or "https", netloc=parts.netloc or "www.youtube.com")
 
     raise ValueError(f"Unsupported provider: {provider}")
 

@@ -50,9 +50,11 @@ def test_provider_resolution_result_fields():
         kind="creator",
         canonical_url="https://www.youtube.com/@creator-name/videos",
         creator="creator-name",
+        surface="videos",
     )
     assert result.provider == "youtube"
     assert result.kind == "creator"
     assert result.canonical_url.endswith("/videos")
     assert result.creator == "creator-name"
     assert result.media_id is None
+    assert result.surface == "videos"

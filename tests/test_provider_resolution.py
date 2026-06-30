@@ -44,3 +44,12 @@ def test_resolve_creator_target_returns_structured_result():
     assert result.kind == "creator"
     assert result.creator == "creator-name"
     assert result.canonical_url == "https://www.youtube.com/@creator-name/videos"
+    assert result.surface == "videos"
+
+
+def test_resolve_creator_target_preserves_youtube_surface():
+    result = resolve_creator_target("https://www.youtube.com/@creator-name/shorts", None, command_name="creator add")
+    assert result.provider == "youtube"
+    assert result.creator == "creator-name"
+    assert result.canonical_url == "https://www.youtube.com/@creator-name/shorts"
+    assert result.surface == "shorts"
