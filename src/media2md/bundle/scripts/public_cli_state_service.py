@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 
 from media2md.cli_output_service import make_event_payload, make_output_model, make_section
 from media2md.health_taxonomy import health_category, summarize_health
-from media2md.provider_catalog import provider_command_matrix
+from media2md.provider_catalog import provider_capability_matrix, provider_command_matrix
 from media2md.provider_registry import provider_adapter
 from media2md.remediation_service import auth_status_command
 
@@ -356,7 +356,8 @@ def apply_settings_updates(config: dict[str, Any], args) -> dict[str, Any]:
 
 
 def agent_status_payload(config: dict[str, Any], *, schema_version: int) -> dict[str, Any]:
-    command_matrix = provider_command_matrix()
+    capability_matrix = provider_capability_matrix()
+    command_matrix = {name: dict(item["commands"]) for name, item in capability_matrix.items()}
     provider_reads = sorted({command for commands in command_matrix.values() for command in commands.get("read", [])})
     provider_writes = sorted({command for commands in command_matrix.values() for command in commands.get("write", [])})
     provider_confirmations = sorted({command for commands in command_matrix.values() for command in commands.get("confirmation", [])})
@@ -390,6 +391,7 @@ def agent_status_payload(config: dict[str, Any], *, schema_version: int) -> dict
                 "confirmation": ["update install", "update rollback", "data delete-all", "drain", *provider_confirmations],
             },
             "provider_commands": command_matrix,
+            "provider_capabilities": capability_matrix,
         },
     )
     return payload.as_dict()

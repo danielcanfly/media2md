@@ -152,6 +152,12 @@ def test_agent_status_payload_keeps_schema_version():
     assert "creator delete" in payload["commands"]["confirmation"]
     assert "youtube" in payload["provider_commands"]
     assert "doctor youtube-access" in payload["provider_commands"]["youtube"]["read"]
+    assert "provider_capabilities" in payload
+    assert payload["provider_capabilities"]["youtube"]["backends"] == ["yt-dlp", "yt-dlp-ejs"]
+    assert payload["provider_capabilities"]["instagram"]["default_backend"] == "auto"
+    assert payload["provider_capabilities"]["tiktok"]["extra"] == "tiktok"
+    assert payload["provider_capabilities"]["youtube"]["capabilities"]["creator_sync"] is True
+    assert "creator refresh-catalog" in payload["provider_capabilities"]["youtube"]["commands"]["write"]
 
 
 def test_creator_catalog_metadata_derives_youtube_surface_and_configured_surfaces():

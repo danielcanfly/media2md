@@ -90,3 +90,25 @@ def provider_command_matrix() -> dict[str, dict[str, list[str]]]:
         }
         for item in _CATALOG
     }
+
+
+def provider_capability_matrix() -> dict[str, dict[str, object]]:
+    return {
+        item.name: {
+            "name": item.name,
+            "backends": list(item.backends),
+            "default_backend": item.default_backend,
+            "extra": item.extra,
+            "capabilities": {
+                "single_media": item.capabilities.single_media,
+                "creator_sync": item.capabilities.creator_sync,
+                "batch_drain": item.capabilities.batch_drain,
+            },
+            "commands": {
+                "read": list(item.command_capabilities.read),
+                "write": list(item.command_capabilities.write),
+                "confirmation": list(item.command_capabilities.confirmation),
+            },
+        }
+        for item in _CATALOG
+    }
