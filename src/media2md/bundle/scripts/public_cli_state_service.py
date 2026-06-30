@@ -345,6 +345,9 @@ def apply_settings_updates(config: dict[str, Any], args) -> dict[str, Any]:
 
 def agent_status_payload(config: dict[str, Any], *, schema_version: int) -> dict[str, Any]:
     command_matrix = provider_command_matrix()
+    provider_reads = sorted({command for commands in command_matrix.values() for command in commands.get("read", [])})
+    provider_writes = sorted({command for commands in command_matrix.values() for command in commands.get("write", [])})
+    provider_confirmations = sorted({command for commands in command_matrix.values() for command in commands.get("confirmation", [])})
     payload = make_output_model(
         event="agent_status",
         schema="media2md.cli.agent_status/v1",
@@ -370,9 +373,9 @@ def agent_status_payload(config: dict[str, Any], *, schema_version: int) -> dict
             "normal_commands_may_launch_browser": False,
             "human_required_for": ["password", "2fa", "captcha", "platform_challenge"],
             "commands": {
-                "read": ["status", "settings show", "creator status", "creator policy show", "auth status", "doctor all", "update status"],
-                "write": ["settings set", "creator add", "creator policy set", "creator run", "scheduler tick", "auth refresh"],
-                "confirmation": ["update install", "update rollback", "creator delete", "data delete-all", "drain"],
+                "read": ["status", "settings show", "auth status", "doctor all", "update status", *provider_reads],
+                "write": ["settings set", "creator policy set", "scheduler tick", "auth refresh", *provider_writes],
+                "confirmation": ["update install", "update rollback", "data delete-all", "drain", *provider_confirmations],
             },
             "provider_commands": command_matrix,
         },

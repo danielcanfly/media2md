@@ -29,6 +29,7 @@ from media2md_runtime import (
 from media2md_types import infer_media_type, output_bucket, processing_class
 
 from media2md_auth_shared import refresh_if_configured
+from media2md.remediation_service import auth_verify_command, provider_access_guidance
 
 ROOT = Path(__file__).resolve().parents[1]
 DB = ROOT / "data" / "social2md_media.db"
@@ -718,7 +719,10 @@ def _inspect_instagram_instaloader(shortcode: str) -> dict[str, Any]:
 def _youtube_challenge_hint(error: str) -> str:
     lower = error.lower()
     if any(token in lower for token in ("challenge solver", "signature solving", "only images are available", "requested format is not available")):
-        return error + "\nRun './bin/media2md doctor youtube' and install the YouTube extra with yt-dlp EJS support."
+        guidance = provider_access_guidance("youtube", error_code="missing_dependency", required_action="install_provider_extra")
+        doctor_command = "media2md doctor youtube-access --video-id=<VIDEO_ID>"
+        install_guidance = guidance[0] if guidance else "Run: python -m pip install -U \"media2md[youtube]\""
+        return error + f"\nRun '{doctor_command}' and ensure YouTube support is installed. {install_guidance}"
     return error
 
 
@@ -728,10 +732,11 @@ def _instagram_metadata_access_hint(error: str) -> str:
         "403", "forbidden", "login", "challenge", "anonymous metadata access",
         "could not inspect shortcode", "owner metadata", "no instagram metadata",
     )):
+        verify_command = auth_verify_command("instagram")
         return (
             error
             + "\nInstagram metadata access was rejected. Reconnect or verify the selected browser profile, "
-              "then retry with 'media2md auth verify instagram'."
+              f"then retry with '{verify_command}'."
         )
     return error
 
@@ -1124,10 +1129,12 @@ def download_youtube_audio(source_url: str, work: Path, external_id: str) -> tup
     strategies = youtube_download_strategies(auth_args("youtube"))
     attempts: list[dict[str, Any]] = []
     if not strategies:
+        guidance = provider_access_guidance("youtube", required_action="configure_youtube_audio_strategies")
         raise StageError(
             "download", "No YouTube audio download strategies are configured.",
             retryable=False, error_code="youtube_no_download_strategy",
             action_required=True, required_action="configure_youtube_audio_strategies",
+            root_cause=" | ".join(guidance) if guidance else None,
         )
     auth_checked = False
     artifact_stem = safe_artifact_stem("youtube", external_id)
@@ -1184,13 +1191,18 @@ def download_youtube_audio(source_url: str, work: Path, external_id: str) -> tup
     classification = classify_access_error("youtube", summary)
     if classification["error_code"] == "youtube_po_token_required":
         classification["required_action"] = "configure_non_browser_po_token_or_try_another_video"
+    guidance = provider_access_guidance(
+        "youtube",
+        error_code=str(classification.get("error_code") or ""),
+        required_action=str(classification.get("required_action") or ""),
+    )
     raise StageError(
         "download", f"All YouTube audio strategies failed: {summary}",
         retryable=bool(classification["retryable"]),
         error_code=str(classification["error_code"]),
         action_required=bool(classification["action_required"]),
         required_action=classification.get("required_action"),
-        root_cause=summary[-1000:] if summary else "all YouTube audio strategies failed",
+        root_cause=" | ".join(guidance) if guidance else (summary[-1000:] if summary else "all YouTube audio strategies failed"),
     )
 
 
