@@ -18,6 +18,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if sys.path and sys.path[0] == _SCRIPT_DIR:
+    sys.path.append(sys.path.pop(0))
+
 from media2md_paths import require_command
 from media2md_urls import detect_provider as detect_provider_from_value, normalize_media
 from media2md_ytdlp import (classify_access_error, impersonation_args, youtube_access_args, youtube_runtime_args,
@@ -30,7 +34,10 @@ from media2md_types import infer_media_type, output_bucket, processing_class
 
 from media2md_auth_shared import refresh_if_configured
 from media2md.remediation_service import auth_verify_command, provider_access_guidance
-from media2md.required_actions import validate_required_action
+try:
+    from media2md.required_actions import validate_required_action
+except ModuleNotFoundError:
+    from media2md_contract_compat import validate_required_action
 
 ROOT = Path(__file__).resolve().parents[1]
 DB = ROOT / "data" / "social2md_media.db"

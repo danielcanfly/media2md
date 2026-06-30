@@ -12,10 +12,20 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from media2md.cli_output_service import make_output_model, make_section
-from media2md.health_taxonomy import health_category, normalize_health_status, summarize_health
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if sys.path and sys.path[0] == _SCRIPT_DIR:
+    sys.path.append(sys.path.pop(0))
+
+try:
+    from media2md.cli_output_service import make_output_model, make_section
+    from media2md.health_taxonomy import health_category, normalize_health_status, summarize_health
+except ModuleNotFoundError:
+    from media2md_contract_compat import make_output_model, make_section, health_category, normalize_health_status, summarize_health
 from media2md.remediation_service import media2md_install_guidance, provider_access_guidance
-from media2md.results import HealthResult
+try:
+    from media2md.results import HealthResult
+except ModuleNotFoundError:
+    from media2md_contract_compat import HealthResult
 from media2md.probe import probe_command
 from media2md_paths import command_path
 from media2md_ytdlp import (

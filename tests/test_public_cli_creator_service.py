@@ -40,13 +40,13 @@ def test_creator_policy_payload_wraps_effective_policy():
         creator="creator-name",
         effective_policy=lambda provider, creator: {"provider": provider, "creator": creator},
     )
-    assert payload == {
-        "event": "creator_policy",
-        "schema": "media2md.cli.creator_policy/v1",
-        "provider": "youtube",
-        "creator": "creator-name",
-        "policy": {"provider": "youtube", "creator": "creator-name"},
-    }
+    assert payload["event"] == "creator_policy"
+    assert payload["schema"] == "media2md.cli.creator_policy/v1"
+    assert payload["status"] == "ok"
+    assert payload["sections"][0]["name"] == "policy"
+    assert payload["provider"] == "youtube"
+    assert payload["creator"] == "creator-name"
+    assert payload["policy"] == {"provider": "youtube", "creator": "creator-name"}
 
 
 def test_resolve_existing_row_matches_case_insensitively():

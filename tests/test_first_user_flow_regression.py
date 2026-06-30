@@ -428,6 +428,9 @@ def test_first_user_runtime_status_reports_managed_paths(monkeypatch, tmp_path, 
     out = capsys.readouterr().out
     payload = json.loads(out)
     assert result == 0
+    assert payload["event"] == "runtime_status"
+    assert payload["schema"] == "media2md.cli.runtime_status/v1"
+    assert payload["status"] == "ok"
     assert payload["managed"] is True
     assert payload["managed_base"].endswith("/Downloads/media2md")
     assert payload["runtime_root"].endswith("/runtime/0.9.4")

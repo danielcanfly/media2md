@@ -14,7 +14,15 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from media2md.cli_result_types import cli_result
+
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if sys.path and sys.path[0] == _SCRIPT_DIR:
+    sys.path.append(sys.path.pop(0))
+
+try:
+    from media2md.cli_result_types import cli_result
+except ModuleNotFoundError:
+    from media2md_contract_compat import cli_result
 
 from creator_run_shared import prepare_catalog_for_creator_run
 from media2md_urls import detect_provider as detect_provider_url, normalize_creator as normalize_creator_target

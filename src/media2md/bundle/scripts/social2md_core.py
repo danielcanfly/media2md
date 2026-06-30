@@ -22,8 +22,16 @@ from datetime import date, datetime, time as dt_time, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
-from media2md.cli_result_types import cli_result
-from media2md.required_actions import validate_required_action
+
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if sys.path and sys.path[0] == _SCRIPT_DIR:
+    sys.path.append(sys.path.pop(0))
+
+try:
+    from media2md.cli_result_types import cli_result
+    from media2md.required_actions import validate_required_action
+except ModuleNotFoundError:
+    from media2md_contract_compat import cli_result, validate_required_action
 
 from media2md_paths import command_path
 

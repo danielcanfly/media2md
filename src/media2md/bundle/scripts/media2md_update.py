@@ -16,7 +16,15 @@ import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from media2md.cli_output_service import make_output_model, make_section
+
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if sys.path and sys.path[0] == _SCRIPT_DIR:
+    sys.path.append(sys.path.pop(0))
+
+try:
+    from media2md.cli_output_service import make_output_model, make_section
+except ModuleNotFoundError:
+    from media2md_contract_compat import make_output_model, make_section
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "config" / "social2md.json"

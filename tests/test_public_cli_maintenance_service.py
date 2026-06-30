@@ -36,6 +36,9 @@ def test_repair_active_states_updates_matching_rows(tmp_path, capsys):
     out = capsys.readouterr().out
     assert result == 0
     assert "ACTIVE_STATES_REPAIRED" in out
+    payload = out.splitlines()[1:]
+    assert '"event": "repair_active_states"' in "\n".join(payload)
+    assert '"schema": "media2md.cli.repair_active_states/v1"' in "\n".join(payload)
 
 
 def test_repair_workspace_requires_yes(tmp_path):
@@ -51,4 +54,7 @@ def test_repair_workspace_cleans_files_when_no_active_rows(tmp_path, capsys):
     out = capsys.readouterr().out
     assert result == 0
     assert "WORKSPACE_REPAIRED" in out
+    payload = out.splitlines()[1:]
+    assert '"event": "repair_workspace"' in "\n".join(payload)
+    assert '"schema": "media2md.cli.repair_workspace/v1"' in "\n".join(payload)
     assert target.exists()

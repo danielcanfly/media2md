@@ -2,6 +2,7 @@ from __future__ import annotations
 import argparse, json, os, shutil, subprocess, sys
 from pathlib import Path
 from .bootstrap import VERSION, ensure_runtime, import_legacy, managed_base, runtime_root, state_root
+from .cli_output_service import make_output_model, make_section
 
 def _registry_path() -> Path:
  return Path.home()/'Library'/'Application Support'/'media2md-config'/'project.json' if sys.platform=='darwin' else (Path(os.getenv('APPDATA',Path.home()/'.config'))/'media2md'/'project.json' if os.name=='nt' else Path(os.getenv('XDG_CONFIG_HOME',Path.home()/'.config'))/'media2md'/'project.json')
@@ -28,7 +29,36 @@ def runtime_command(argv):
  x=s.add_parser('import'); x.add_argument('--from-project',required=True)
  x=s.add_parser('set-base-path'); x.add_argument('path')
  a=p.parse_args(argv)
- if a.cmd=='status': print(json.dumps({'version':VERSION,'managed_base':str(managed_base()),'runtime_root':str(runtime_root()),'runtime_exists':runtime_root().is_dir(),'state_root':str(state_root()),'managed':True},indent=2)); return 0
+ if a.cmd=='status':
+  payload=make_output_model(
+   event='runtime_status',
+   schema='media2md.cli.runtime_status/v1',
+   summary='Managed runtime status',
+   sections=(
+    make_section(
+     'runtime',
+     status='ok',
+     message='Managed runtime metadata is available',
+     data={
+      'managed_base':str(managed_base()),
+      'runtime_root':str(runtime_root()),
+      'runtime_exists':runtime_root().is_dir(),
+      'state_root':str(state_root()),
+      'managed':True,
+     },
+    ),
+   ),
+   data={
+    'version':VERSION,
+    'managed_base':str(managed_base()),
+    'runtime_root':str(runtime_root()),
+    'runtime_exists':runtime_root().is_dir(),
+    'state_root':str(state_root()),
+    'managed':True,
+   },
+  ).as_dict()
+  print(json.dumps(payload,indent=2))
+  return 0
  if a.cmd=='path': print(ensure_runtime()); return 0
  if a.cmd=='base-path': print(managed_base()); return 0
  if a.cmd=='install': print(f'MEDIA2MD_RUNTIME_INSTALLED path={ensure_runtime(a.force)} version={VERSION}'); return 0

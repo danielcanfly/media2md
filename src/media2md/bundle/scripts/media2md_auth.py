@@ -4,8 +4,16 @@ import argparse, http.cookiejar, json, os, sys, urllib.error, urllib.parse, urll
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from media2md.cli_output_service import make_event_payload, make_output_model, make_section
-from media2md.health_taxonomy import health_category
+
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if sys.path and sys.path[0] == _SCRIPT_DIR:
+ sys.path.append(sys.path.pop(0))
+
+try:
+    from media2md.cli_output_service import make_event_payload, make_output_model, make_section
+    from media2md.health_taxonomy import health_category
+except ModuleNotFoundError:
+    from media2md_contract_compat import make_event_payload, make_output_model, make_section, health_category
 from media2md.remediation_service import auth_verify_command, provider_profile_guidance
 from media2md_youtube_session import profile_inventory, validate_profile, verify_youtube_session, load_auth_profiles, save_auth_profiles
 from media2md_auth_shared import export_profile_snapshot, load_cookie_jar, cookie_stats, refresh_if_configured

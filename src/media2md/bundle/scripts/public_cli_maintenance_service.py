@@ -5,6 +5,10 @@ import shutil
 import sqlite3
 from pathlib import Path
 from typing import Callable
+try:
+    from media2md.cli_output_service import make_output_model, make_section
+except ModuleNotFoundError:
+    from media2md_contract_compat import make_output_model, make_section
 
 
 ACTIVE_STATES = ("downloading", "downloaded", "transcribing", "transcribed", "rendering", "validating", "cleaning")
@@ -42,8 +46,22 @@ def repair_active_states_common(args, *, root: Path, iso_now: Callable[[], str],
         finally:
             conn.close()
     registry(["repair-identities"])
+    payload = make_output_model(
+        event="repair_active_states",
+        schema="media2md.cli.repair_active_states/v1",
+        summary="Active states were requeued",
+        sections=(
+            make_section(
+                "maintenance",
+                status="ok",
+                message="Abandoned active states were repaired",
+                data={"repaired": repaired},
+            ),
+        ),
+        data={"repaired": repaired},
+    ).as_dict()
     print("ACTIVE_STATES_REPAIRED")
-    print(json.dumps(repaired, indent=2))
+    print(json.dumps(payload, indent=2))
     return 0
 
 
@@ -72,7 +90,20 @@ def repair_workspace_common(args, *, root: Path) -> int:
             removed_files += sum(1 for path in target.rglob("*") if path.is_file())
             shutil.rmtree(target)
         target.mkdir(parents=True, exist_ok=True)
+    payload = make_output_model(
+        event="repair_workspace",
+        schema="media2md.cli.repair_workspace/v1",
+        summary="Workspace intermediates were cleaned",
+        sections=(
+            make_section(
+                "maintenance",
+                status="ok",
+                message="Workspace cleanup completed",
+                data={"removed_files": removed_files, "active_rows": 0},
+            ),
+        ),
+        data={"removed_files": removed_files, "active_rows": 0},
+    ).as_dict()
     print("WORKSPACE_REPAIRED")
-    print(f"removed_files={removed_files}")
-    print("active_rows=0")
+    print(json.dumps(payload, indent=2))
     return 0

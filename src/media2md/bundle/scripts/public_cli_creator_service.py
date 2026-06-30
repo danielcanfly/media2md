@@ -7,15 +7,28 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlsplit
-from media2md.cli_output_service import make_event_payload
+try:
+    from media2md.cli_output_service import make_event_payload, make_output_model, make_section
+except ModuleNotFoundError:
+    from media2md_contract_compat import make_event_payload, make_output_model, make_section
 
 
 def creator_policy_payload(*, provider: str, creator: str, effective_policy: Callable[[str, str], dict[str, Any]]) -> dict[str, Any]:
-    return make_event_payload(
+    policy = effective_policy(provider, creator)
+    return make_output_model(
         event="creator_policy",
         schema="media2md.cli.creator_policy/v1",
-        data={"provider": provider, "creator": creator, "policy": effective_policy(provider, creator)},
-    )
+        summary="Creator policy projection",
+        sections=(
+            make_section(
+                "policy",
+                status="ok",
+                message="Effective creator policy",
+                data={"provider": provider, "creator": creator, "policy": policy},
+            ),
+        ),
+        data={"provider": provider, "creator": creator, "policy": policy},
+    ).as_dict()
 
 
 def print_policy(payload: dict[str, Any]) -> None:
