@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from .provider_catalog import provider_names
 from .provider_registry import all_provider_adapters
 from .results import ProviderResolutionResult
 from .urls import detect_provider, normalize_creator
 
 
-PROVIDERS = ("instagram", "youtube", "tiktok")
+PROVIDERS = provider_names()
 
 
 def resolve_provider_for_creator(
@@ -15,13 +16,18 @@ def resolve_provider_for_creator(
     command_name: str,
 ) -> str:
     if provider:
-        return provider
+        chosen = provider.lower()
+        if chosen in PROVIDERS:
+            return chosen
+        raise RuntimeError(
+            f"Unsupported provider: {provider}. Use one of {', '.join(PROVIDERS)}."
+        )
     detected = detect_provider(value)
     if detected:
         return detected
     raise RuntimeError(
         f"{command_name} requires --provider when <creator> is a bare handle. "
-        "Use a full creator URL or pass --provider instagram|youtube|tiktok."
+        f"Use a full creator URL or pass --provider {'|'.join(PROVIDERS)}."
     )
 
 

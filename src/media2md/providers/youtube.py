@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from media2md.urls import detect_provider, normalize_creator
 
+from ..provider_catalog import provider_metadata
 from ..probe import probe_command
 from ..provider_contract import ProviderAdapter
 from ..provider_health import probe_health_result
@@ -10,7 +11,7 @@ from ..results import HealthResult, ProviderResolutionResult
 
 class YouTubeAdapter(ProviderAdapter):
     name = "youtube"
-    backends = ["yt-dlp", "yt-dlp-ejs"]
+    backends = list(provider_metadata("youtube").backends)
 
     def can_handle_url(self, url: str) -> bool:
         return detect_provider(url) == self.name

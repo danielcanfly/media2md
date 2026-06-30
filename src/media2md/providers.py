@@ -1,26 +1,16 @@
 from __future__ import annotations
 
+from .provider_catalog import provider_catalog
+
+
 PROVIDERS = {
-    "instagram": {
-        "single_media": True,
-        "creator_sync": True,
-        "batch_drain": True,
-        "backends": ["gallery-dl", "instaloader"],
-        "default_backend": "auto",
-        "extra": "instagram",
-    },
-    "youtube": {
-        "single_media": True,
-        "creator_sync": True,
-        "batch_drain": True,
-        "backends": ["yt-dlp", "yt-dlp-ejs"],
-        "extra": "youtube",
-    },
-    "tiktok": {
-        "single_media": True,
-        "creator_sync": True,
-        "batch_drain": True,
-        "backends": ["yt-dlp"],
-        "extra": "tiktok",
-    },
+    item.name: {
+        "single_media": item.capabilities.single_media,
+        "creator_sync": item.capabilities.creator_sync,
+        "batch_drain": item.capabilities.batch_drain,
+        "backends": list(item.backends),
+        "default_backend": item.default_backend,
+        "extra": item.extra,
+    }
+    for item in provider_catalog()
 }
