@@ -516,6 +516,7 @@ def creator_run(args: argparse.Namespace) -> int:
         "creator_run_instagram",
         "creator_run_registry_command",
     )
+    youtube_catalog_surfaces_service = optional_attr("media2md_registry", "youtube_catalog_surfaces")
     provider=resolve_creator_provider(args.creator, args.provider, command_name="creator run")
     refresh_auth(provider)
     creator=normalize_creator(provider,args.creator)
@@ -575,6 +576,7 @@ def creator_run(args: argparse.Namespace) -> int:
             prepare_catalog_for_creator_run=prepare_catalog_for_creator_run,
             registry_call=registry,
             emit_call=emit,
+            youtube_catalog_surfaces=youtube_catalog_surfaces_service,
         )
         if outcome is not None:
             return outcome

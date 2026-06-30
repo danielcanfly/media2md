@@ -2762,6 +2762,11 @@ def _creator_run_summary(
     markdown_root: Path | None = None, latest_markdown_path: str | None = None,
 ) -> None:
     completed = max(0, processed - failures)
+    primary_output_surface = None
+    if markdown_root:
+        candidate = markdown_root.name
+        if candidate in {"videos", "shorts", "streams", "reels"}:
+            primary_output_surface = candidate
     if output == "human":
         print(
             f"CREATOR_RUN_COMPLETED provider={provider} creator={handle} status={status} "
@@ -2772,6 +2777,8 @@ def _creator_run_summary(
             print(f"latest_markdown_path={latest_markdown_path}")
         if markdown_root:
             print(f"markdown_root={markdown_root}")
+            if primary_output_surface:
+                print(f"primary_output_surface={primary_output_surface}")
             print(f"result_folder={markdown_root}")
             print(f"open_in_finder_hint=open \"{markdown_root}\"")
     else:
@@ -2782,6 +2789,7 @@ def _creator_run_summary(
             "failures": failures, "remaining": max(0, remaining),
             "latest_markdown_path": latest_markdown_path,
             "markdown_root": str(markdown_root) if markdown_root else None,
+            "primary_output_surface": primary_output_surface,
         }, ensure_ascii=False), flush=True)
 
 

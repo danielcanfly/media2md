@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from media2md.bundle.scripts.public_cli_creator_service import (
+    emit_creator_run_catalog_context,
     creator_run_catalog_preflight,
     creator_run_context,
     creator_policy_payload,
@@ -170,6 +171,7 @@ def test_creator_run_context_computes_mode_and_batch_sizes():
 def test_creator_run_catalog_preflight_returns_existing_row_on_success():
     args = _Args(creator="@acta.so", output="ndjson")
     rows = [{"provider": "tiktok", "handle": "acta.so", "tracked": 3, "last_sync_at": "2026-06-30T00:00:00+00:00"}]
+    emitted = []
     existing_row, outcome = creator_run_catalog_preflight(
         args=args,
         provider="tiktok",
@@ -178,7 +180,33 @@ def test_creator_run_catalog_preflight_returns_existing_row_on_success():
         registry_rows=rows,
         prepare_catalog_for_creator_run=lambda **kwargs: 0,
         registry_call=lambda cmd: 0,
-        emit_call=lambda payload, output: None,
+        emit_call=lambda payload, output: emitted.append(payload),
     )
     assert existing_row == rows[0]
     assert outcome is None
+    assert emitted[0]["event"] == "creator_run_catalog_context"
+    assert emitted[0]["using_saved_catalog"] is True
+
+
+def test_emit_creator_run_catalog_context_includes_youtube_surfaces(capsys):
+    class _Args:
+        output = "human"
+
+    emit_creator_run_catalog_context(
+        args=_Args(),
+        provider="youtube",
+        creator="creator-name",
+        existing_row={
+            "source_url": "https://www.youtube.com/@creator-name/shorts",
+            "tracked": 12,
+            "last_sync_at": "2026-06-30T00:00:00+00:00",
+            "current_total_exact": 1,
+        },
+        emit=lambda payload, output: None,
+        youtube_catalog_surfaces=lambda: ("videos", "shorts", "streams"),
+    )
+    out = capsys.readouterr().out
+    assert "CREATOR_RUN_CATALOG" in out
+    assert "catalog_surface=shorts" in out
+    assert "catalog_surfaces=videos,shorts,streams" in out
+    assert "catalog_source_url=https://www.youtube.com/@creator-name/shorts" in out

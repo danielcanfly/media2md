@@ -6,6 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlsplit
 
 
 def creator_policy_payload(*, provider: str, creator: str, effective_policy: Callable[[str, str], dict[str, Any]]) -> dict[str, Any]:
@@ -40,6 +41,54 @@ def creator_sync_common(
 
 def resolve_existing_row(rows: list[dict[str, Any]], provider: str, creator: str) -> dict[str, Any] | None:
     return next((row for row in rows if row["provider"] == provider and row["handle"].lower() == creator.lower()), None)
+
+
+def _youtube_surface_from_source_url(source_url: str | None) -> str:
+    path = urlsplit(str(source_url or "")).path.rstrip("/").lower()
+    for surface in ("videos", "shorts", "streams"):
+        if path.endswith(f"/{surface}"):
+            return surface
+    return "videos"
+
+
+def emit_creator_run_catalog_context(
+    *,
+    args,
+    provider: str,
+    creator: str,
+    existing_row: dict[str, Any] | None,
+    emit: Callable[[dict[str, Any], str], None],
+    youtube_catalog_surfaces: Callable[[], tuple[str, ...]] | None = None,
+) -> None:
+    source_url = existing_row.get("source_url") if existing_row else None
+    payload: dict[str, Any] = {
+        "event": "creator_run_catalog_context",
+        "provider": provider,
+        "creator": creator,
+        "catalog_source_url": source_url,
+        "tracked": int(existing_row.get("tracked") or 0) if existing_row else 0,
+        "catalog_last_synced_at": existing_row.get("last_sync_at") if existing_row else None,
+        "catalog_exact": bool(existing_row.get("current_total_exact")) if existing_row else False,
+        "using_saved_catalog": existing_row is not None,
+    }
+    if provider == "youtube":
+        surfaces = list(youtube_catalog_surfaces() if youtube_catalog_surfaces is not None else ("videos", "shorts"))
+        payload["catalog_surface"] = _youtube_surface_from_source_url(source_url)
+        payload["catalog_surfaces"] = surfaces
+    if args.output == "human":
+        print("CREATOR_RUN_CATALOG", flush=True)
+        print(f"provider={provider}", flush=True)
+        print(f"creator={creator}", flush=True)
+        print(f"using_saved_catalog={str(payload['using_saved_catalog']).lower()}", flush=True)
+        print(f"catalog_last_synced_at={payload['catalog_last_synced_at'] or '-'}", flush=True)
+        print(f"catalog_exact={str(payload['catalog_exact']).lower()}", flush=True)
+        print(f"tracked={payload['tracked']}", flush=True)
+        if provider == "youtube":
+            print(f"catalog_surface={payload['catalog_surface']}", flush=True)
+            print(f"catalog_surfaces={','.join(payload['catalog_surfaces'])}", flush=True)
+        print(f"catalog_source_url={source_url or '-'}", flush=True)
+    else:
+        emit(payload, args.output)
 
 
 def emit_sync_warning_or_fail(
@@ -172,8 +221,17 @@ def creator_run_catalog_preflight(
     prepare_catalog_for_creator_run: Callable[..., int],
     registry_call: Callable[[list[str]], int],
     emit_call: Callable[[dict[str, Any], str], None],
+    youtube_catalog_surfaces: Callable[[], tuple[str, ...]] | None = None,
 ) -> tuple[dict[str, Any] | None, int | None]:
     existing_row = resolve_existing_row(registry_rows, provider, creator)
+    emit_creator_run_catalog_context(
+        args=args,
+        provider=provider,
+        creator=creator,
+        existing_row=existing_row,
+        emit=emit_call,
+        youtube_catalog_surfaces=youtube_catalog_surfaces,
+    )
     sync_code = prepare_catalog_for_creator_run(
         provider=provider,
         creator_arg=args.creator,

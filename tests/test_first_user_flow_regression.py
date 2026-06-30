@@ -273,12 +273,14 @@ def test_first_user_creator_run_uses_stale_catalog_guardrail(monkeypatch):
         prepare_catalog_for_creator_run=lambda **kwargs: 1,
         registry_call=lambda args: 0,
         emit_call=lambda payload, output: emitted.append(payload),
+        youtube_catalog_surfaces=lambda: ("videos", "shorts"),
     )
     assert existing_row == rows[0]
     assert result is None
     assert emitted
-    assert emitted[0]["event"] == "sync_warning"
-    assert emitted[0]["using_cached_catalog"] is True
+    assert emitted[0]["event"] == "creator_run_catalog_context"
+    assert emitted[1]["event"] == "sync_warning"
+    assert emitted[1]["using_cached_catalog"] is True
 
 
 def test_first_user_creator_run_builds_registry_command_with_saved_policy_defaults(monkeypatch):
@@ -356,6 +358,7 @@ def test_first_user_creator_run_summary_includes_result_folder_and_finder_hint(c
     )
     out = capsys.readouterr().out
     assert "CREATOR_RUN_COMPLETED provider=youtube creator=creator-name status=completed" in out
+    assert "primary_output_surface=creator-name" not in out
     assert f"result_folder={markdown_root}" in out
     assert f'open_in_finder_hint=open "{markdown_root}"' in out
 

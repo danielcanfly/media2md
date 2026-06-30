@@ -60,5 +60,6 @@ def test_creator_run_summary_includes_result_folder_and_finder_hint(capsys):
     )
     output = capsys.readouterr().out
     assert "latest_markdown_path=" in output
+    assert "primary_output_surface=videos" in output
     assert "result_folder=" in output
     assert "open_in_finder_hint=open " in output
