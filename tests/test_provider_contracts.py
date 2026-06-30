@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import pytest
 
+from media2md.provider_catalog import provider_catalog, provider_metadata, provider_names
 from media2md.health_taxonomy import health_category, normalize_health_status
-from media2md.provider_registry import all_provider_adapters, provider_adapter
+from media2md.provider_registry import all_provider_adapters, provider_adapter, registered_provider_names
 from media2md.provider_resolution import resolve_creator_target, resolve_provider_for_creator
 
 EXPECTED_BACKENDS = {
@@ -18,6 +19,13 @@ def test_provider_registry_not_empty():
     assert adapters
 
 
+def test_provider_catalog_not_empty_and_ordered():
+    catalog = provider_catalog()
+    assert catalog
+    assert provider_names() == ("instagram", "youtube", "tiktok")
+    assert registered_provider_names() == provider_names()
+
+
 def test_provider_names_unique():
     adapters = all_provider_adapters()
     names = [adapter.name for adapter in adapters]
@@ -29,6 +37,18 @@ def test_provider_registry_matches_declared_provider_catalog():
     registry_names = {adapter.name for adapter in adapters}
     declared_names = set(EXPECTED_BACKENDS)
     assert registry_names == declared_names
+    assert set(provider_names()) == declared_names
+
+
+def test_provider_catalog_metadata_matches_expected_backends():
+    for name, expected_backends in EXPECTED_BACKENDS.items():
+        metadata = provider_metadata(name)
+        assert metadata is not None
+        assert metadata.name == name
+        assert metadata.backends == tuple(expected_backends)
+        assert metadata.capabilities.single_media is True
+        assert metadata.capabilities.creator_sync is True
+        assert metadata.capabilities.batch_drain is True
 
 
 def test_provider_adapter_lookup_is_case_insensitive():
