@@ -79,8 +79,7 @@ def emit_creator_run_catalog_context(
     youtube_catalog_surfaces: Callable[[], tuple[str, ...]] | None = None,
 ) -> None:
     source_url = existing_row.get("source_url") if existing_row else None
-    payload: dict[str, Any] = {
-        **make_event_payload(event="creator_run_catalog_context", schema="media2md.cli.creator_run_catalog_context/v1"),
+    payload_data: dict[str, Any] = {
         "provider": provider,
         "creator": creator,
         "catalog_source_url": source_url,
@@ -91,8 +90,22 @@ def emit_creator_run_catalog_context(
     }
     if provider == "youtube":
         surfaces = list(youtube_catalog_surfaces() if youtube_catalog_surfaces is not None else ("videos", "shorts"))
-        payload["catalog_surface"] = _youtube_surface_from_source_url(source_url)
-        payload["catalog_surfaces"] = surfaces
+        payload_data["catalog_surface"] = _youtube_surface_from_source_url(source_url)
+        payload_data["catalog_surfaces"] = surfaces
+    payload = make_output_model(
+        event="creator_run_catalog_context",
+        schema="media2md.cli.creator_run_catalog_context/v1",
+        summary="Catalog context for creator run",
+        sections=(
+            make_section(
+                "catalog",
+                status="ok" if payload_data["using_saved_catalog"] else "warn",
+                message="Saved catalog context resolved before creator run",
+                data=payload_data,
+            ),
+        ),
+        data=payload_data,
+    ).as_dict()
     if args.output == "human":
         print("CREATOR_RUN_CATALOG", flush=True)
         print(f"provider={provider}", flush=True)
@@ -124,23 +137,51 @@ def emit_sync_warning_or_fail(
             print(f"SYNC_FAILED provider={provider} creator={creator}; batch_not_started=true", file=sys.stderr)
         else:
             emit(
-                make_event_payload(
+                make_output_model(
                     event="sync_failed",
                     schema="media2md.cli.sync_failed/v1",
+                    summary="Catalog refresh failed before batch start",
+                    sections=(
+                        make_section(
+                            "catalog",
+                            status="error",
+                            message="Catalog refresh failed and no cached catalog could be used",
+                            data={"provider": provider, "creator": creator, "batch_not_started": True},
+                        ),
+                    ),
                     data={"provider": provider, "creator": creator, "batch_not_started": True},
-                ),
+                ).as_dict(),
                 args.output,
             )
         return sync_code
-    warning = {
-        **make_event_payload(event="sync_warning", schema="media2md.cli.sync_warning/v1"),
-        "provider": provider,
-        "creator": creator,
-        "using_cached_catalog": True,
-        "catalog_last_synced_at": existing_row.get("last_sync_at"),
-        "tracked": int(existing_row.get("tracked") or 0),
-        "confirmation_was_explicit": True,
-    }
+    warning = make_output_model(
+        event="sync_warning",
+        schema="media2md.cli.sync_warning/v1",
+        summary="Cached catalog will be used for this creator run",
+        sections=(
+            make_section(
+                "catalog",
+                status="warn",
+                message="Live refresh failed; continuing with an explicitly accepted cached catalog",
+                data={
+                    "provider": provider,
+                    "creator": creator,
+                    "using_cached_catalog": True,
+                    "catalog_last_synced_at": existing_row.get("last_sync_at"),
+                    "tracked": int(existing_row.get("tracked") or 0),
+                    "confirmation_was_explicit": True,
+                },
+            ),
+        ),
+        data={
+            "provider": provider,
+            "creator": creator,
+            "using_cached_catalog": True,
+            "catalog_last_synced_at": existing_row.get("last_sync_at"),
+            "tracked": int(existing_row.get("tracked") or 0),
+            "confirmation_was_explicit": True,
+        },
+    ).as_dict()
     if args.output == "human":
         print("SYNC_WARNING", flush=True)
         print(f"provider={provider}", flush=True)

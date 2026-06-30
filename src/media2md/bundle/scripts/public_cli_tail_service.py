@@ -11,7 +11,10 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
-from media2md.cli_output_service import make_event_payload
+try:
+    from media2md.cli_output_service import make_event_payload, make_output_model, make_section
+except ModuleNotFoundError:
+    from media2md_contract_compat import make_event_payload, make_output_model, make_section
 from media2md.remediation_service import uninstall_dry_run_next_step
 
 
@@ -100,11 +103,20 @@ def scheduler_tick_common(
                 failures += 1
         atomic_json(scheduler_state_path, state)
     emit(
-        make_event_payload(
+        make_output_model(
             event="media2md_scheduler_completed",
             schema="media2md.cli.scheduler_completed/v1",
+            summary="Scheduler tick completed",
+            sections=(
+                make_section(
+                    "scheduler",
+                    status="ok" if failures == 0 else "warn",
+                    message="Scheduled catalog and processing jobs finished",
+                    data={"jobs_run": jobs, "failures": failures},
+                ),
+            ),
             data={"jobs_run": jobs, "failures": failures},
-        ),
+        ).as_dict(),
         args.output,
     )
     if args.output == "human":
@@ -130,9 +142,24 @@ def update_check_common(
         latest = str(release.get("tag_name") or "")
         parts = lambda value: tuple(int(item) for item in __import__("re").findall(r"\d+", value)[:3])
         available = parts(latest) > parts(version)
-        payload = make_event_payload(
+        payload = make_output_model(
             event="update_check",
             schema="media2md.cli.update_check/v1",
+            summary="Published update check result",
+            sections=(
+                make_section(
+                    "update",
+                    status="warn" if available else "ok",
+                    message="Published GitHub release status",
+                    data={
+                        "repository": repo,
+                        "current_version": version,
+                        "latest_version": latest,
+                        "update_available": available,
+                        "release_url": release.get("html_url"),
+                    },
+                ),
+            ),
             data={
                 "repository": repo,
                 "current_version": version,
@@ -140,20 +167,35 @@ def update_check_common(
                 "update_available": available,
                 "release_url": release.get("html_url"),
             },
-        )
+        ).as_dict()
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
-            payload = make_event_payload(
+            payload = make_output_model(
                 event="update_check",
                 schema="media2md.cli.update_check/v1",
+                summary="No published GitHub release was found",
+                sections=(
+                    make_section(
+                        "update",
+                        status="ok",
+                        message="No published GitHub release was found",
+                        data={
+                            "repository": repo,
+                            "current_version": version,
+                            "latest_version": None,
+                            "update_available": False,
+                            "release_status": "no_release_published",
+                        },
+                    ),
+                ),
                 data={
                     "repository": repo,
                     "current_version": version,
                     "latest_version": None,
                     "update_available": False,
-                    "status": "no_release_published",
+                    "release_status": "no_release_published",
                 },
-            )
+            ).as_dict()
         else:
             raise RuntimeError(f"GitHub update check failed: HTTP {exc.code}")
     if args.output == "ndjson":
@@ -186,9 +228,30 @@ def data_delete_all_common(args: argparse.Namespace, *, root: Path) -> int:
             moved.append(relative)
         for relative in ("data", "markdown", "workspace", "logs/runs", "config"):
             (root / relative).mkdir(parents=True, exist_ok=True)
+    payload = make_output_model(
+        event="data_delete_all",
+        schema="media2md.cli.data_delete_all/v1",
+        summary="All managed data was quarantined",
+        sections=(
+            make_section(
+                "maintenance",
+                status="warn",
+                message="Managed data was moved to quarantine and can still be recovered",
+                data={
+                    "quarantine_path": str(quarantine.relative_to(root)),
+                    "moved": moved,
+                    "recoverable": True,
+                },
+            ),
+        ),
+        data={
+            "quarantine_path": str(quarantine.relative_to(root)),
+            "moved": moved,
+            "recoverable": True,
+        },
+    ).as_dict()
     print(f"ALL_DATA_QUARANTINED path={quarantine.relative_to(root)}")
-    print(f"moved={','.join(moved)}")
-    print("recoverable=true")
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0
 
 
@@ -237,11 +300,36 @@ def uninstall_common(
             removed_skills.append(name)
     registry_file = Path.home() / ".config" / "media2md" / "project.json"
     registry_file.unlink(missing_ok=True)
+    payload = make_output_model(
+        event="uninstall_prepared",
+        schema="media2md.cli.uninstall_prepared/v1",
+        summary="Uninstall plan prepared",
+        sections=(
+            make_section(
+                "uninstall",
+                status="warn" if getattr(args, "dry_run", False) else "ok",
+                message="Package uninstall plan is ready",
+                data={
+                    "openclaw_cron_removed": len(removed_jobs),
+                    "openclaw_skills_removed": removed_skills,
+                    "data_purged": bool(args.purge_data),
+                    "package_command": "python -m pip uninstall -y media2md social2md",
+                    "package_uninstalled": False if getattr(args, "dry_run", False) else True,
+                    "next_step": uninstall_dry_run_next_step() if getattr(args, "dry_run", False) else None,
+                },
+            ),
+        ),
+        data={
+            "openclaw_cron_removed": len(removed_jobs),
+            "openclaw_skills_removed": removed_skills,
+            "data_purged": bool(args.purge_data),
+            "package_command": "python -m pip uninstall -y media2md social2md",
+            "package_uninstalled": False if getattr(args, "dry_run", False) else True,
+            "next_step": uninstall_dry_run_next_step() if getattr(args, "dry_run", False) else None,
+        },
+    ).as_dict()
     print("MEDIA2MD_UNINSTALL_PREPARED")
-    print(f"openclaw_cron_removed={len(removed_jobs)}")
-    print(f"openclaw_skills_removed={','.join(removed_skills) or '-'}")
-    print(f"data_purged={str(args.purge_data).lower()}")
-    print("package_command=python -m pip uninstall -y media2md social2md")
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
     if getattr(args, "dry_run", False):
         print("package_uninstalled=false")
         print(f"next_step={uninstall_dry_run_next_step()}")

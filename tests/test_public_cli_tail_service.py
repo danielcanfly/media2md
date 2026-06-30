@@ -6,6 +6,7 @@ from pathlib import Path
 
 from media2md.bundle.scripts.public_cli_tail_service import (
     build_scheduler_creator_run_namespace,
+    data_delete_all_common,
     scheduler_tick_common,
     uninstall_common,
     update_check_common,
@@ -70,8 +71,23 @@ def test_uninstall_common_dry_run_skips_pip(monkeypatch, capsys):
     )
     out = capsys.readouterr().out
     assert result == 0
-    assert "package_uninstalled=false" in out
+    assert '"event": "uninstall_prepared"' in out
+    assert '"schema": "media2md.cli.uninstall_prepared/v1"' in out
+    assert '"package_uninstalled": false' in out
     assert calls == []
+
+
+def test_data_delete_all_common_emits_shared_schema(tmp_path, capsys):
+    data = tmp_path / "data"
+    data.mkdir(parents=True)
+    (data / "sample.txt").write_text("ok", encoding="utf-8")
+    args = argparse.Namespace(yes=True, confirm="DELETE-ALL-DATA")
+    result = data_delete_all_common(args, root=tmp_path)
+    out = capsys.readouterr().out
+    assert result == 0
+    assert "ALL_DATA_QUARANTINED" in out
+    assert '"event": "data_delete_all"' in out
+    assert '"schema": "media2md.cli.data_delete_all/v1"' in out
 
 
 def test_update_check_common_ndjson_uses_emit(monkeypatch):
@@ -95,6 +111,8 @@ def test_update_check_common_ndjson_uses_emit(monkeypatch):
     payload, output = emitted[0]
     assert output == "ndjson"
     assert payload["schema"] == "media2md.cli.update_check/v1"
+    assert payload["status"] == "warn"
+    assert payload["sections"][0]["name"] == "update"
     assert payload["update_available"] is True
 
 
@@ -122,3 +140,5 @@ def test_scheduler_tick_common_ndjson_uses_shared_schema():
     assert output == "ndjson"
     assert payload["event"] == "media2md_scheduler_completed"
     assert payload["schema"] == "media2md.cli.scheduler_completed/v1"
+    assert payload["status"] == "ok"
+    assert payload["sections"][0]["name"] == "scheduler"

@@ -114,18 +114,17 @@ def check(repository: str | None = None, persist: bool = True) -> dict[str, Any]
     repo = repository or str(cfg.get("repository") or REPOSITORY)
     release = github_release(repo)
     payload: dict[str, Any] = {
-        "event": "update_check",
         "repository": repo,
         "current_version": CURRENT_VERSION,
         "checked_at": iso_now(),
     }
     if release.get("status") == "no_release_published":
-        payload.update({"status": "no_release_published", "latest_version": None, "update_available": False})
+        payload.update({"release_status": "no_release_published", "latest_version": None, "update_available": False})
     else:
         latest = str(release.get("tag_name") or "")
         asset = select_asset(release)
         payload.update({
-            "status": "ok",
+            "release_status": "ok",
             "latest_version": latest,
             "update_available": version_tuple(latest) > version_tuple(CURRENT_VERSION),
             "release_url": release.get("html_url"),
@@ -315,7 +314,7 @@ def rollback(yes: bool) -> dict[str, Any]:
 
 def render(payload: dict[str, Any], output: str, title: str) -> None:
     if output == "ndjson":
-        print(json.dumps({"schema_version": 12, **payload}, ensure_ascii=False, sort_keys=True))
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
         return
     print(title)
     for key, value in payload.items():
@@ -360,7 +359,7 @@ def main() -> int:
         raw = check(args.repository)
         payload = update_payload(
             event="update_check",
-            status="ok" if not raw.get("update_available") else "warn",
+            status="warn" if raw.get("update_available") else "ok",
             summary="Published update check result",
             data=raw,
         )
@@ -381,7 +380,7 @@ def main() -> int:
                 raw = check()
                 payload = update_payload(
                     event="update_check",
-                    status="ok" if not raw.get("update_available") else "warn",
+                    status="warn" if raw.get("update_available") else "ok",
                     summary="Published update check result",
                     data=raw,
                 )

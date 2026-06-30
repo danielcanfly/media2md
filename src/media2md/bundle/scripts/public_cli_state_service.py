@@ -275,14 +275,26 @@ def settings_payload(config: dict[str, Any]) -> dict[str, Any]:
         summary="Current settings projection",
         sections=(
             make_section(
-                "settings",
+                "localization",
                 status="ok",
-                message="Settings are available",
+                message="Localization settings are available",
                 data={
                     "timezone": config.get("timezone", "UTC"),
                     "ui_locale": config.get("ui_locale", "en"),
                     "markdown_locale": config.get("markdown_locale", "en"),
                 },
+            ),
+            make_section(
+                "providers",
+                status="ok",
+                message="Provider settings projection",
+                data={"providers": config.get("providers", {})},
+            ),
+            make_section(
+                "updates",
+                status="ok",
+                message="Update settings projection",
+                data={"updates": config.get("updates", {})},
             ),
         ),
         data={

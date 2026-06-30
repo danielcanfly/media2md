@@ -112,6 +112,9 @@ def test_settings_payload_is_minimal_projection():
     )
     assert payload["event"] == "settings"
     assert payload["schema"] == "media2md.cli.settings/v1"
+    assert payload["status"] == "ok"
+    assert len(payload["sections"]) == 3
+    assert payload["sections"][0]["name"] == "localization"
     assert payload["markdown_locale"] == "ja"
     assert payload["providers"]["youtube"]["chunk_model"] == "small"
 

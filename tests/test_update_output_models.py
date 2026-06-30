@@ -27,3 +27,9 @@ def test_update_check_if_due_skipped_emits_schema(monkeypatch, capsys):
     assert '"event": "update_check_skipped"' in out
     assert '"schema": "media2md.cli.update_check_skipped/v1"' in out
 
+
+def test_update_check_raw_payload_uses_release_status_not_top_level_status(monkeypatch):
+    monkeypatch.setattr(update, "github_release", lambda repo: {"status": "no_release_published"})
+    payload = update.check("danielcanfly/media2md", persist=False)
+    assert "status" not in payload
+    assert payload["release_status"] == "no_release_published"

@@ -23,6 +23,10 @@ try:
     from media2md.cli_result_types import cli_result
 except ModuleNotFoundError:
     from media2md_contract_compat import cli_result
+try:
+    from media2md.cli_output_service import make_output_model, make_section
+except ModuleNotFoundError:
+    from media2md_contract_compat import make_output_model, make_section
 
 from creator_run_shared import prepare_catalog_for_creator_run
 from media2md_types import DEFAULT_BATCH_SIZES, normalize_batch_sizes, parse_batch_size_assignments
@@ -605,17 +609,53 @@ def creator_run(args: argparse.Namespace) -> int:
             can_use_stale = bool(args.allow_stale_catalog and existing_row and int(existing_row.get("tracked") or 0) > 0)
             if not can_use_stale:
                 if args.output=="human": print(f"SYNC_FAILED provider={provider} creator={creator}; batch_not_started=true",file=sys.stderr)
-                else: emit({"event":"sync_failed","provider":provider,"creator":creator,"batch_not_started":True},args.output)
+                else:
+                    emit(
+                        make_output_model(
+                            event="sync_failed",
+                            schema="media2md.cli.sync_failed/v1",
+                            summary="Catalog refresh failed before batch start",
+                            sections=(
+                                make_section(
+                                    "catalog",
+                                    status="error",
+                                    message="Catalog refresh failed and no cached catalog could be used",
+                                    data={"provider": provider, "creator": creator, "batch_not_started": True},
+                                ),
+                            ),
+                            data={"provider": provider, "creator": creator, "batch_not_started": True},
+                        ).as_dict(),
+                        args.output,
+                    )
                 return sync_code
-            warning = {
-                "event": "sync_warning",
-                "provider": provider,
-                "creator": creator,
-                "using_cached_catalog": True,
-                "catalog_last_synced_at": existing_row.get("last_sync_at"),
-                "tracked": int(existing_row.get("tracked") or 0),
-                "confirmation_was_explicit": True,
-            }
+            warning = make_output_model(
+                event="sync_warning",
+                schema="media2md.cli.sync_warning/v1",
+                summary="Cached catalog will be used for this creator run",
+                sections=(
+                    make_section(
+                        "catalog",
+                        status="warn",
+                        message="Live refresh failed; continuing with an explicitly accepted cached catalog",
+                        data={
+                            "provider": provider,
+                            "creator": creator,
+                            "using_cached_catalog": True,
+                            "catalog_last_synced_at": existing_row.get("last_sync_at"),
+                            "tracked": int(existing_row.get("tracked") or 0),
+                            "confirmation_was_explicit": True,
+                        },
+                    ),
+                ),
+                data={
+                    "provider": provider,
+                    "creator": creator,
+                    "using_cached_catalog": True,
+                    "catalog_last_synced_at": existing_row.get("last_sync_at"),
+                    "tracked": int(existing_row.get("tracked") or 0),
+                    "confirmation_was_explicit": True,
+                },
+            ).as_dict()
             if args.output=="human":
                 print("SYNC_WARNING", flush=True)
                 print(f"provider={provider}", flush=True)
@@ -783,10 +823,10 @@ def update_check(args: argparse.Namespace) -> int:
         latest=str(release.get("tag_name") or "")
         def parts(v:str): return tuple(int(x) for x in __import__('re').findall(r"\d+",v)[:3])
         available=parts(latest)>parts(VERSION)
-        payload={"event":"update_check","repository":repo,"current_version":VERSION,"latest_version":latest,"update_available":available,"release_url":release.get("html_url")}
+        payload={"event":"update_check","schema":"media2md.cli.update_check/v1","status":"warn" if available else "ok","category":"action_required" if available else "ready","summary":"Published update check result","sections":[{"name":"update","status":"warn" if available else "ok","category":"action_required" if available else "ready","message":"Published GitHub release status","data":{"repository":repo,"current_version":VERSION,"latest_version":latest,"update_available":available,"release_url":release.get("html_url")}}],"repository":repo,"current_version":VERSION,"latest_version":latest,"update_available":available,"release_url":release.get("html_url")}
     except urllib.error.HTTPError as exc:
         if exc.code==404:
-            payload={"event":"update_check","repository":repo,"current_version":VERSION,"latest_version":None,"update_available":False,"status":"no_release_published"}
+            payload={"event":"update_check","schema":"media2md.cli.update_check/v1","status":"ok","category":"ready","summary":"No published GitHub release was found","sections":[{"name":"update","status":"ok","category":"ready","message":"No published GitHub release was found","data":{"repository":repo,"current_version":VERSION,"latest_version":None,"update_available":False,"release_status":"no_release_published"}}],"repository":repo,"current_version":VERSION,"latest_version":None,"update_available":False,"release_status":"no_release_published"}
         else: raise RuntimeError(f"GitHub update check failed: HTTP {exc.code}")
     if args.output=="ndjson": emit(payload,args.output)
     else:

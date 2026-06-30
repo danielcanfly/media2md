@@ -187,6 +187,8 @@ def test_creator_run_catalog_preflight_returns_existing_row_on_success():
     assert outcome is None
     assert emitted[0]["event"] == "creator_run_catalog_context"
     assert emitted[0]["schema"] == "media2md.cli.creator_run_catalog_context/v1"
+    assert emitted[0]["status"] in {"ok", "warn"}
+    assert emitted[0]["sections"][0]["name"] == "catalog"
     assert emitted[0]["using_saved_catalog"] is True
 
 
