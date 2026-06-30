@@ -5,6 +5,11 @@ import sys
 from pathlib import Path
 from typing import Callable
 
+from media2md.provider_catalog import provider_names
+
+
+PROVIDER_CHOICES = provider_names()
+
 
 def add_common_top_level_commands(
     subparsers,
@@ -166,9 +171,9 @@ def add_common_uninstall_command(subparsers, *, uninstall) -> None:
 def _add_creator_policy_arguments(parser, *, parse_duration, include_typed_batch_sizes: bool, default_provider: str | None) -> None:
     parser.add_argument("creator")
     if default_provider is None:
-        parser.add_argument("--provider", choices=("instagram", "youtube", "tiktok"))
+        parser.add_argument("--provider", choices=PROVIDER_CHOICES, help="Provider for bare handles such as @creator-name.")
     else:
-        parser.add_argument("--provider", choices=("instagram", "youtube", "tiktok"), default=default_provider)
+        parser.add_argument("--provider", choices=PROVIDER_CHOICES, default=default_provider, help="Provider for bare handles such as @creator-name.")
     parser.add_argument("--every", type=parse_duration)
     parser.add_argument("--full-every", type=parse_duration)
     parser.add_argument("--quick-window", type=int)
@@ -192,7 +197,7 @@ def _add_creator_policy_arguments(parser, *, parse_duration, include_typed_batch
 
 def _add_creator_run_arguments(parser, *, include_typed_batch_sizes: bool, include_retry_failed: bool) -> None:
     parser.add_argument("creator")
-    parser.add_argument("--provider", choices=("instagram", "youtube", "tiktok"))
+    parser.add_argument("--provider", choices=PROVIDER_CHOICES, help="Provider for bare handles such as @creator-name.")
     parser.add_argument("--mode", choices=("batch", "drain"))
     parser.add_argument("--batch-size", type=int)
     if include_typed_batch_sizes:
@@ -209,7 +214,7 @@ def _add_creator_run_arguments(parser, *, include_typed_batch_sizes: bool, inclu
     parser.add_argument("--rank-from", type=int)
     parser.add_argument("--rank-to", type=int)
     parser.add_argument("--order", choices=("newest_first", "oldest_first"))
-    parser.add_argument("--allow-stale-catalog", action="store_true", help="Continue with the last saved catalog when sync fails. This is an explicit authorization.")
+    parser.add_argument("--allow-stale-catalog", action="store_true", help="Continue with the last saved catalog when refresh-catalog fails. Use this only when you explicitly want cached results.")
     parser.add_argument("--output", choices=("human", "ndjson"), default="human")
 
 
@@ -238,33 +243,33 @@ def add_common_creator_commands(
     add = cs.add_parser("add", help="Register a creator so it can be refreshed and processed later.")
     add.add_argument("creator")
     if default_provider_for_bare_handles is None:
-        add.add_argument("--provider", choices=("instagram", "youtube", "tiktok"))
+        add.add_argument("--provider", choices=PROVIDER_CHOICES, help="Provider for bare handles such as @creator-name.")
     else:
-        add.add_argument("--provider", choices=("instagram", "youtube", "tiktok"), default=default_provider_for_bare_handles)
+        add.add_argument("--provider", choices=PROVIDER_CHOICES, default=default_provider_for_bare_handles, help="Provider for bare handles such as @creator-name.")
     if strict_provider_resolution and resolve_creator_provider is not None:
         add.set_defaults(func=lambda a: (setattr(a, "provider", resolve_creator_provider(a.creator, a.provider, command_name="creator add")) or add_creator(a)))
     else:
         add.set_defaults(func=add_creator)
 
     stat = cs.add_parser("status", help="Show tracked creator status, policy, and remaining work.")
-    stat.add_argument("--provider", choices=("instagram", "youtube", "tiktok"))
+    stat.add_argument("--provider", choices=PROVIDER_CHOICES)
     stat.add_argument("--creator")
     stat.add_argument("--output", choices=("human", "ndjson"), default="human")
     stat.set_defaults(func=creator_status)
 
     listing = cs.add_parser("list", help="Alias of `creator status`.")
-    listing.add_argument("--provider", choices=("instagram", "youtube", "tiktok"))
+    listing.add_argument("--provider", choices=PROVIDER_CHOICES)
     listing.add_argument("--creator")
     listing.add_argument("--output", choices=("human", "ndjson"), default="human")
     listing.set_defaults(func=creator_status)
 
     for name, enabled in (("sync-enable", True), ("sync-disable", False)):
-        command = cs.add_parser(name)
+        command = cs.add_parser(name, help=f"{'Enable' if enabled else 'Disable'} scheduled catalog refresh for one creator.")
         command.add_argument("creator")
         if default_provider_for_bare_handles is None:
-            command.add_argument("--provider", choices=("instagram", "youtube", "tiktok"))
+            command.add_argument("--provider", choices=PROVIDER_CHOICES, help="Provider for bare handles such as @creator-name.")
         else:
-            command.add_argument("--provider", choices=("instagram", "youtube", "tiktok"), default=default_provider_for_bare_handles)
+            command.add_argument("--provider", choices=PROVIDER_CHOICES, default=default_provider_for_bare_handles, help="Provider for bare handles such as @creator-name.")
         command.add_argument("--every", type=parse_duration)
         command.add_argument("--full-every", type=parse_duration)
         command.add_argument("--quick-window", type=int)
@@ -275,14 +280,14 @@ def add_common_creator_commands(
 
     sync = cs.add_parser("sync", help="Refresh the saved creator catalog. Kept for compatibility; prefer `refresh-catalog`.")
     sync.add_argument("creator")
-    sync.add_argument("--provider", choices=("instagram", "youtube", "tiktok"))
+    sync.add_argument("--provider", choices=PROVIDER_CHOICES, help="Provider for bare handles such as @creator-name.")
     sync.add_argument("--force-full", action="store_true")
     sync.set_defaults(func=creator_sync)
 
     if include_refresh_catalog:
-        refresh = cs.add_parser("refresh-catalog", help="Refresh the saved creator catalog before reviewing or running items.")
+        refresh = cs.add_parser("refresh-catalog", help="Refresh the saved creator catalog before reviewing status or running items.")
         refresh.add_argument("creator")
-        refresh.add_argument("--provider", choices=("instagram", "youtube", "tiktok"))
+        refresh.add_argument("--provider", choices=PROVIDER_CHOICES, help="Provider for bare handles such as @creator-name.")
         refresh.add_argument("--force-full", action="store_true")
         refresh.set_defaults(func=creator_sync)
 
@@ -300,7 +305,7 @@ def add_common_creator_commands(
 
     pshow = cs.add_parser("policy-show", help="Show the effective policy for one creator.")
     pshow.add_argument("creator")
-    pshow.add_argument("--provider", choices=("instagram", "youtube", "tiktok"))
+    pshow.add_argument("--provider", choices=PROVIDER_CHOICES)
     pshow.add_argument("--output", choices=("human", "ndjson"), default="human")
     pshow.set_defaults(func=policy_show)
 
@@ -321,11 +326,11 @@ def add_common_creator_commands(
 
     pshow2 = psub.add_parser("show", help="Show the effective policy for one creator.")
     pshow2.add_argument("creator")
-    pshow2.add_argument("--provider", choices=("instagram", "youtube", "tiktok"))
+    pshow2.add_argument("--provider", choices=PROVIDER_CHOICES)
     pshow2.add_argument("--output", choices=("human", "ndjson"), default="human")
     pshow2.set_defaults(func=policy_show)
 
-    runp = cs.add_parser("run", help="Process queued items for one creator using the saved catalog and policy.")
+    runp = cs.add_parser("run", help="Process queued items for one creator using the saved catalog and current policy.")
     _add_creator_run_arguments(
         runp,
         include_typed_batch_sizes=include_typed_batch_sizes,
@@ -335,6 +340,6 @@ def add_common_creator_commands(
 
     delete = cs.add_parser("delete", help="Delete one tracked creator after confirmation.")
     delete.add_argument("creator")
-    delete.add_argument("--provider", choices=("instagram", "youtube", "tiktok"), required=True)
+    delete.add_argument("--provider", choices=PROVIDER_CHOICES, required=True)
     delete.add_argument("--yes", action="store_true")
     delete.set_defaults(func=lambda a: registry(["delete-creator", a.provider, a.creator] + (["--yes"] if a.yes else [])))

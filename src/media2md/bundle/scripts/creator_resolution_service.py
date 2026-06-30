@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+from media2md.provider_catalog import provider_names
 from media2md_urls import detect_provider as detect_provider_url, normalize_creator as normalize_creator_target
+
+
+PROVIDERS = provider_names()
 
 
 def detect_provider(value: str) -> str | None:
@@ -13,11 +17,16 @@ def normalize_creator_handle(provider: str, value: str) -> str:
 
 def resolve_provider_for_creator(value: str, provider: str | None, *, command_name: str) -> str:
     if provider:
-        return provider
+        chosen = provider.lower()
+        if chosen in PROVIDERS:
+            return chosen
+        raise RuntimeError(
+            f"Unsupported provider: {provider}. Use one of {', '.join(PROVIDERS)}."
+        )
     detected = detect_provider(value)
     if detected:
         return detected
     raise RuntimeError(
         f"{command_name} requires --provider when <creator> is a bare handle. "
-        "Use a full creator URL or pass --provider instagram|youtube|tiktok."
+        f"Use a full creator URL or pass --provider {'|'.join(PROVIDERS)}."
     )

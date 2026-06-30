@@ -24,6 +24,14 @@ def test_resolve_provider_for_creator_requires_provider_for_bare_handle():
     assert "--provider" in str(excinfo.value)
 
 
+def test_resolve_provider_for_creator_rejects_unknown_explicit_provider():
+    with pytest.raises(RuntimeError) as excinfo:
+        resolve_provider_for_creator("@creator-name", "unknown", command_name="creator add")
+    message = str(excinfo.value)
+    assert "Unsupported provider" in message
+    assert "instagram, youtube, tiktok" in message
+
+
 def test_normalize_creator_handle_returns_handle_only():
     assert normalize_creator_handle("instagram", "@creator.name") == "creator.name"
     assert normalize_creator_handle("youtube", "@creator-name") == "creator-name"

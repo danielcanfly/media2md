@@ -18,6 +18,14 @@ def _parser():
     return parser, parser.add_subparsers(dest="command", required=True)
 
 
+def _find_subparser(parser: argparse.ArgumentParser, name: str) -> argparse.ArgumentParser:
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            if name in action.choices:
+                return action.choices[name]
+    raise KeyError(name)
+
+
 def test_add_common_top_level_commands_registers_expected_commands():
     parser, sub = _parser()
     add_common_top_level_commands(
@@ -113,7 +121,11 @@ def test_add_common_creator_commands_media2md_shape():
     args = parser.parse_args(["creator", "refresh-catalog", "@creator-name", "--provider", "youtube"])
     assert args.command == "creator"
     assert args.creator_command == "refresh-catalog"
-    assert "refresh the saved creator catalog" in creator.format_help().lower()
+    help_text = creator.format_help().lower()
+    assert "refresh the saved creator catalog" in help_text
+    assert "prefer `refresh-catalog`" in help_text
+    refresh_help = _find_subparser(creator, "refresh-catalog").format_help().lower()
+    assert "provider for bare handles" in refresh_help
 
 
 def test_add_common_creator_commands_social2md_shape():
@@ -139,3 +151,30 @@ def test_add_common_creator_commands_social2md_shape():
     )
     args = parser.parse_args(["creator", "policy-set", "@creator-name"])
     assert args.provider == "instagram"
+
+
+def test_creator_run_help_mentions_cached_catalog_wording():
+    parser, sub = _parser()
+    creator = sub.add_parser("creator")
+    add_common_creator_commands(
+        creator,
+        providers=("instagram", "youtube", "tiktok"),
+        parse_duration=lambda text: 1,
+        creator_status=lambda args: 0,
+        creator_sync=lambda args: 0,
+        creator_run=lambda args: 0,
+        policy_show=lambda args: 0,
+        set_policy=lambda args, enabled=None: 0,
+        add_creator=lambda args: 0,
+        registry=lambda args: 0,
+        resolve_creator_provider=lambda creator, provider, command_name: provider or "youtube",
+        strict_provider_resolution=True,
+        include_refresh_catalog=True,
+        include_typed_batch_sizes=True,
+        include_retry_failed=True,
+        default_provider_for_bare_handles=None,
+    )
+    creator_help = creator.format_help().lower()
+    run_help = _find_subparser(creator, "run").format_help().lower()
+    assert "current policy" in creator_help
+    assert "cached results" in run_help
