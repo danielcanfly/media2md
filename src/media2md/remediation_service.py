@@ -36,6 +36,27 @@ def auth_status_command(*, output: str | None = None) -> str:
     return "media2md auth status"
 
 
+def settings_show_command(*, output: str | None = None) -> str:
+    if output:
+        return f"media2md settings show --output {output}"
+    return "media2md settings show"
+
+
+def update_check_command(*, repository: str | None = None) -> str:
+    if repository:
+        return f"media2md update check --repository {repository}"
+    return "media2md update check"
+
+
+def doctor_access_command(provider: str) -> str:
+    placeholders = {
+        "youtube": "--video-id=<VIDEO_ID>",
+        "tiktok": "--video-id=<VIDEO_ID> --creator=<CREATOR>",
+    }
+    suffix = placeholders.get(provider, "")
+    return f"media2md doctor {provider}-access{(' ' + suffix) if suffix else ''}".strip()
+
+
 def uninstall_command() -> str:
     return "media2md uninstall"
 
@@ -116,7 +137,7 @@ def youtube_profile_guidance(
             "Do not let an agent repeatedly retry authenticated downloads until authenticated=true.",
         ]
     if action == "doctor":
-        return ["Run: media2md doctor youtube-access --video-id=<VIDEO_ID>"]
+        return [f"Run: {doctor_access_command('youtube')}"]
     raise ValueError(f"Unsupported YouTube guidance action: {action}")
 
 
@@ -148,18 +169,29 @@ def provider_access_guidance(
     if error_code == "youtube_po_token_required":
         lines.extend(
             [
-                "Run: media2md auth verify youtube",
-                "Run: media2md doctor youtube-access --video-id=<VIDEO_ID>",
+                auth_verify_guidance("youtube"),
+                f"Run: {doctor_access_command('youtube')}",
             ]
         )
     if required_action == "provide_valid_video_id":
         lines.append("Retry with a valid media URL or media ID.")
     elif required_action == "configure_youtube_audio_strategies":
-        lines.append("Run: media2md settings show")
+        lines.append(f"Run: {settings_show_command()}")
     elif required_action == "install_impersonation":
         lines.append(media2md_install_guidance("tiktok", "youtube"))
     elif required_action == "install_provider_extra":
         lines.append(media2md_install_guidance(provider))
+    elif required_action == "verify_or_reauthenticate_instagram_session":
+        lines.append(auth_verify_guidance("instagram"))
+    elif required_action == "configure_non_browser_po_token_or_try_another_video":
+        lines.extend(
+            [
+                f"Run: {settings_show_command()}",
+                f"Run: {doctor_access_command('youtube')}",
+            ]
+        )
+    elif required_action == "inspect_render_error":
+        lines.append("Inspect the command log referenced by the failure output, then retry.")
     elif required_action in {"verify_or_reauthenticate_youtube_session", "verify_youtube_session_or_configure_non_browser_access"}:
         lines.extend(youtube_profile_guidance(action="doctor"))
     return guidance_lines(lines)

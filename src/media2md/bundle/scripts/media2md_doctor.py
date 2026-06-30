@@ -530,6 +530,23 @@ def render(payload: dict[str, Any], output: str, title: str) -> None:
             print(f"{key}={json.dumps(value, ensure_ascii=False) if isinstance(value, (dict, list)) else value}")
 
 
+def doctor_event_payload(*, event: str, section: str, status: str, message: str, data: dict[str, Any]) -> dict[str, Any]:
+    return make_output_model(
+        event=event,
+        schema=f"media2md.cli.{event}/v1",
+        summary=message,
+        sections=(
+            make_section(
+                section,
+                status=status,
+                message=message,
+                data=data,
+            ),
+        ),
+        data=data,
+    ).as_dict()
+
+
 def main() -> int:
     argv = sys.argv[1:]
     sentinel = "__MEDIA2MD_VIDEO_ID__"
@@ -548,17 +565,65 @@ def main() -> int:
     args = parser.parse_args(argv)
     if hasattr(args, "video_id") and str(args.video_id).startswith(sentinel): args.video_id = str(args.video_id)[len(sentinel):]
     if args.command == "youtube":
-        payload = youtube_environment_payload(); render(payload, args.output, "YOUTUBE_DOCTOR"); return 0 if payload["ready"] else 2
+        raw = youtube_environment_payload()
+        payload = doctor_event_payload(
+            event="youtube_doctor",
+            section="youtube",
+            status="ok" if raw["ready"] else "warn",
+            message="YouTube environment doctor status",
+            data=raw,
+        )
+        render(payload, args.output, "YOUTUBE_DOCTOR"); return 0 if raw["ready"] else 2
     if args.command == "instagram-backends":
-        payload = instagram_payload(args.shortcode); render(payload, args.output, "INSTAGRAM_BACKENDS_DOCTOR"); return 0 if payload["ready"] else 2
+        raw = instagram_payload(args.shortcode)
+        payload = doctor_event_payload(
+            event="instagram_backends_doctor",
+            section="instagram_backends",
+            status=raw.get("health_status", "warn"),
+            message=str(raw.get("health_message") or "Instagram backend doctor status"),
+            data=raw,
+        )
+        render(payload, args.output, "INSTAGRAM_BACKENDS_DOCTOR"); return 0 if raw["ready"] else 2
     if args.command == "impersonation":
-        payload = impersonation_payload(); render(payload, args.output, "IMPERSONATION_DOCTOR"); return 0 if payload["ready"] else 2
+        raw = impersonation_payload()
+        payload = doctor_event_payload(
+            event="impersonation_doctor",
+            section="impersonation",
+            status=raw.get("health_status", "warn"),
+            message=str(raw.get("health_message") or "Impersonation target availability"),
+            data=raw,
+        )
+        render(payload, args.output, "IMPERSONATION_DOCTOR"); return 0 if raw["ready"] else 2
     if args.command == "browser-safety":
-        payload = {"event": "browser_safety_doctor", **browser_safety_payload()}; render(payload, args.output, "BROWSER_SAFETY_DOCTOR"); return 0
+        raw = browser_safety_payload()
+        payload = doctor_event_payload(
+            event="browser_safety_doctor",
+            section="browser_safety",
+            status="ok",
+            message="Browser launch safety policy",
+            data=raw,
+        )
+        render(payload, args.output, "BROWSER_SAFETY_DOCTOR"); return 0
     if args.command == "youtube-access":
-        payload = youtube_access_payload(args.video_id, transcription_smoke_test=args.transcription_smoke_test); render(payload, args.output, "YOUTUBE_ACCESS_DOCTOR"); return 0 if payload.get("pipeline_ready") else 2
+        raw = youtube_access_payload(args.video_id, transcription_smoke_test=args.transcription_smoke_test)
+        payload = doctor_event_payload(
+            event="youtube_access_doctor",
+            section="youtube_access",
+            status=raw.get("health_status", "error"),
+            message=str(raw.get("health_message") or raw.get("error") or "YouTube access doctor status"),
+            data=raw,
+        )
+        render(payload, args.output, "YOUTUBE_ACCESS_DOCTOR"); return 0 if raw.get("pipeline_ready") else 2
     if args.command == "tiktok-access":
-        payload = tiktok_access_payload(args.video_id, args.creator, transcription_smoke_test=args.transcription_smoke_test); render(payload, args.output, "TIKTOK_ACCESS_DOCTOR"); return 0 if payload.get("pipeline_ready") else 2
+        raw = tiktok_access_payload(args.video_id, args.creator, transcription_smoke_test=args.transcription_smoke_test)
+        payload = doctor_event_payload(
+            event="tiktok_access_doctor",
+            section="tiktok_access",
+            status=raw.get("health_status", "error"),
+            message=str(raw.get("health_message") or raw.get("error") or "TikTok access doctor status"),
+            data=raw,
+        )
+        render(payload, args.output, "TIKTOK_ACCESS_DOCTOR"); return 0 if raw.get("pipeline_ready") else 2
     payload: dict[str, Any] = {"event": "doctor_all", "youtube": youtube_environment_payload(), "instagram": instagram_payload(args.shortcode), "impersonation": impersonation_payload()}
     if args.youtube_video_id: payload["youtube_access"] = youtube_access_payload(args.youtube_video_id, transcription_smoke_test=args.transcription_smoke_test)
     if args.tiktok_video_id and args.tiktok_creator: payload["tiktok_access"] = tiktok_access_payload(args.tiktok_video_id, args.tiktok_creator, transcription_smoke_test=args.transcription_smoke_test)

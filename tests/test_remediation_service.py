@@ -3,12 +3,15 @@ from __future__ import annotations
 from media2md.remediation_service import (
     auth_status_command,
     auth_verify_command,
+    doctor_access_command,
     media2md_install_command,
     media2md_install_guidance,
     provider_access_guidance,
     provider_command_guidance,
     provider_profile_guidance,
+    settings_show_command,
     uninstall_dry_run_next_step,
+    update_check_command,
     youtube_profile_guidance,
 )
 
@@ -28,6 +31,9 @@ def test_media2md_install_guidance_wraps_command():
 def test_auth_commands_render_public_cli_forms():
     assert auth_verify_command("instagram") == "media2md auth verify instagram"
     assert auth_status_command(output="ndjson") == "media2md auth status --output ndjson"
+    assert settings_show_command() == "media2md settings show"
+    assert update_check_command(repository="danielcanfly/media2md") == "media2md update check --repository danielcanfly/media2md"
+    assert doctor_access_command("youtube") == "media2md doctor youtube-access --video-id=<VIDEO_ID>"
 
 
 def test_provider_profile_guidance_login_is_universal():
@@ -67,3 +73,5 @@ def test_provider_access_guidance_covers_dependency_and_doctor_paths():
     po = provider_access_guidance("youtube", error_code="youtube_po_token_required", required_action="verify_youtube_session_or_configure_non_browser_access")
     assert "Run: media2md auth verify youtube" in po
     assert "Run: media2md doctor youtube-access --video-id=<VIDEO_ID>" in po
+    settings = provider_access_guidance("youtube", required_action="configure_non_browser_po_token_or_try_another_video")
+    assert "Run: media2md settings show" in settings

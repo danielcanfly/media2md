@@ -16,6 +16,7 @@ import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from media2md.cli_output_service import make_output_model, make_section
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "config" / "social2md.json"
@@ -316,6 +317,23 @@ def render(payload: dict[str, Any], output: str, title: str) -> None:
         print("release_notes=" + str(payload["release_notes"]).replace("\n", " ")[:500])
 
 
+def update_payload(*, event: str, status: str, summary: str, data: dict[str, Any]) -> dict[str, Any]:
+    return make_output_model(
+        event=event,
+        schema=f"media2md.cli.{event}/v1",
+        summary=summary,
+        sections=(
+            make_section(
+                "update",
+                status=status,
+                message=summary,
+                data=data,
+            ),
+        ),
+        data=data,
+    ).as_dict()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
@@ -327,30 +345,72 @@ def main() -> int:
     rb = sub.add_parser("rollback"); rb.add_argument("--yes", action="store_true"); rb.add_argument("--output", choices=("human", "ndjson"), default="human")
     args = parser.parse_args()
     if args.command == "status":
-        payload = {"event": "update_status", "settings": settings(), "state": load_json(STATE, {})}
+        data = {"settings": settings(), "state": load_json(STATE, {})}
+        payload = update_payload(event="update_status", status="ok", summary="Update settings and cached update state", data=data)
         render(payload, args.output, "UPDATE_STATUS"); return 0
     if args.command == "check":
-        payload = check(args.repository); render(payload, args.output, "UPDATE_CHECK"); return 0
+        raw = check(args.repository)
+        payload = update_payload(
+            event="update_check",
+            status="ok" if not raw.get("update_available") else "warn",
+            summary="Published update check result",
+            data=raw,
+        )
+        render(payload, args.output, "UPDATE_CHECK"); return 0
     if args.command == "check-if-due":
         if not due_for_check():
-            payload = {"event": "update_check_skipped", "reason": "not_due"}
+            payload = update_payload(
+                event="update_check_skipped",
+                status="ok",
+                summary="Update check skipped because the current interval is not due",
+                data={"reason": "not_due"},
+            )
         else:
             state = load_json(STATE, {})
             state["last_attempt_at"] = iso_now()
             atomic_json(STATE, state)
             try:
-                payload = check()
+                raw = check()
+                payload = update_payload(
+                    event="update_check",
+                    status="ok" if not raw.get("update_available") else "warn",
+                    summary="Published update check result",
+                    data=raw,
+                )
             except Exception as exc:
                 state = load_json(STATE, {})
                 state["last_failure"] = {"at": iso_now(), "error": str(exc)[:1000]}
                 atomic_json(STATE, state)
-                payload = {"event": "update_check_failed", "error": str(exc), "retry_after_hours": 24}
+                payload = update_payload(
+                    event="update_check_failed",
+                    status="warn",
+                    summary="Update check failed; retry later",
+                    data={"error": str(exc), "retry_after_hours": 24},
+                )
         render(payload, args.output, "UPDATE_CHECK"); return 0
     if args.command == "download":
-        payload = {"event": "update_downloaded", **download_asset()}; render(payload, args.output, "UPDATE_DOWNLOADED"); return 0
+        payload = update_payload(
+            event="update_downloaded",
+            status="ok",
+            summary="Update artifact downloaded and verified",
+            data=download_asset(),
+        )
+        render(payload, args.output, "UPDATE_DOWNLOADED"); return 0
     if args.command == "install":
-        payload = {"event": "update_installed", **install_downloaded(args.yes, args.non_interactive)}; render(payload, args.output, "UPDATE_INSTALLED"); return 0
-    payload = {"event": "update_rolled_back", **rollback(args.yes)}; render(payload, args.output, "UPDATE_ROLLED_BACK"); return 0
+        payload = update_payload(
+            event="update_installed",
+            status="ok",
+            summary="Downloaded update installed successfully",
+            data=install_downloaded(args.yes, args.non_interactive),
+        )
+        render(payload, args.output, "UPDATE_INSTALLED"); return 0
+    payload = update_payload(
+        event="update_rolled_back",
+        status="ok",
+        summary="Rollback restored the previous managed update snapshot",
+        data=rollback(args.yes),
+    )
+    render(payload, args.output, "UPDATE_ROLLED_BACK"); return 0
 
 
 if __name__ == "__main__":
