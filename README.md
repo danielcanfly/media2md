@@ -1,13 +1,16 @@
 # Media2MD
 
-Media2MD is a local-first command-line tool that collects supported media from Instagram, YouTube, and TikTok, transcribes speech locally, and turns the results into structured Markdown.
+Media2MD is a local-first CLI for collecting content from Instagram, YouTube, and TikTok, transcribing speech on your own machine, and turning the results into structured Markdown.
 
-It is built for both people working directly in the terminal and agents that need stable commands, schedulable workflows, and machine-readable output. Media2MD can reuse a browser session you already authenticated locally, but it does not enter passwords, bypass 2FA, solve CAPTCHAs, or defeat platform challenges.
+It is designed for both direct terminal use and agent-driven workflows that need stable commands, schedulable operations, and machine-readable output. The generated Markdown is meant to be easy to archive, search, summarize, or feed into a wiki or knowledge base.
+
+Media2MD runs locally, can reuse a browser session you already authenticated on your machine, and keeps runtime state separate from the installed package. It does not enter passwords, bypass 2FA, solve CAPTCHAs, or defeat platform challenges.
 
 ## Highlights
 
 - One CLI for Instagram, YouTube, and TikTok intake
 - Local runtime and local transcription workflows
+- Instagram support for reels, single-image posts, and carousel posts
 - Markdown output that is easy to archive, search, summarize, or import into a knowledge base
 - Creator tracking, catalog refresh, queue processing, diagnostics, and backup commands in one tool
 - Human-friendly terminal usage plus stable surfaces for automation and agent orchestration
@@ -39,6 +42,15 @@ pip install "media2md[youtube]"
 pip install "media2md[tiktok]"
 pip install "media2md[all]"
 ```
+
+Install Instagram post OCR support when you want OCR from post images:
+
+```bash
+pip install "media2md[instagram,ocr-mac-os]"
+pip install "media2md[instagram,ocr-windows-linux]"
+```
+
+Use `ocr-mac-os` on macOS. Use `ocr-windows-linux` on Windows or Linux.
 
 Check the installed version:
 
@@ -120,6 +132,8 @@ media2md media inspect <media-url>
 media2md media add <media-url> --process-now
 ```
 
+Instagram media URLs can be reels, posts, legacy `/tv/` video URLs, or carousel posts. Post and carousel Markdown includes the caption plus OCR text grouped in image order when OCR support is installed.
+
 Create and verify a state backup:
 
 ```bash
@@ -150,7 +164,8 @@ Typical Markdown output paths:
 ```text
 markdown/youtube/<creator>/videos/
 markdown/youtube/<creator>/shorts/
-markdown/instagram/<creator>/
+markdown/instagram/<creator>/reels/
+markdown/instagram/<creator>/posts/
 markdown/tiktok/<creator>/
 ```
 
@@ -173,6 +188,8 @@ markdown/tiktok/<creator>/
 - `update`: package update and rollback helpers
 
 For machine-readable integrations, many commands support `--output ndjson`.
+
+`media2md doctor instagram-backends` also reports the current Instagram OCR route and whether local post OCR is ready on this machine.
 
 ## Example Commands
 
@@ -236,6 +253,7 @@ Media2MD does not:
 ## Notes
 
 - Some providers require their corresponding extra dependencies.
+- Instagram post and carousel OCR uses local OCR only. No external OCR API or LLM service is required.
 - Browser-backed auth works best when the target session is already healthy in the browser.
 - The managed runtime separates code from state to make local upgrades and recovery easier.
 - The package is published on PyPI, but your actual media processing happens locally.

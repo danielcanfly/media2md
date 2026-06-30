@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
+import platform
 import re
 import signal
 import subprocess
@@ -52,6 +54,19 @@ def _command_ready(name: str, *, package: str | None = None) -> tuple[bool, dict
         "category": health_category(probe.status),
         "output": probe.output or None,
         "hint": probe.hint or None,
+    }
+
+
+def _module_probe(module_name: str, *, package: str | None = None) -> tuple[bool, dict[str, Any]]:
+    spec = importlib.util.find_spec(module_name)
+    ready = spec is not None
+    status = "ok" if ready else "missing"
+    hint = None if ready else f"Install support via media2md[{package or module_name}]."
+    return ready, {
+        "status": status,
+        "category": health_category(status),
+        "output": module_name if ready else None,
+        "hint": hint,
     }
 
 
@@ -110,7 +125,13 @@ def instagram_payload(shortcode: str | None) -> dict[str, Any]:
     instaloader = command("instaloader")
     gallery_ready, gallery_probe = _command_ready("gallery-dl")
     instaloader_ready, instaloader_probe = _command_ready("instaloader")
+    easyocr_ready, easyocr_probe = _module_probe("easyocr", package="ocr-windows-linux")
     cookie = ROOT / "data" / "secrets" / "instagram-cookies.txt"
+    platform_name = platform.system().lower()
+    preferred_ocr = "vision" if platform_name == "darwin" else "easyocr"
+    fallback_ocr = "easyocr" if platform_name == "darwin" else None
+    vision_supported = platform_name == "darwin"
+    ocr_ready = bool(vision_supported or easyocr_ready)
     payload: dict[str, Any] = {
         "event": "instagram_backends_doctor", "gallery_dl_available": bool(gallery),
         "instaloader_available": bool(instaloader), "cookie_file": str(cookie),
@@ -118,6 +139,14 @@ def instagram_payload(shortcode: str | None) -> dict[str, Any]:
         "gallery_dl_probe": None, "instaloader_probe": None,
         "gallery_dl_command_probe": gallery_probe,
         "instaloader_command_probe": instaloader_probe,
+        "supported_media_surfaces": ["reel", "post", "carousel", "tv_legacy"],
+        "ocr_platform_route": "vision_with_easyocr_fallback" if platform_name == "darwin" else "easyocr",
+        "ocr_preferred_engine": preferred_ocr,
+        "ocr_fallback_engine": fallback_ocr,
+        "ocr_install_extra": "ocr-mac-os" if platform_name == "darwin" else "ocr-windows-linux",
+        "vision_supported": vision_supported,
+        "easyocr_module_probe": easyocr_probe,
+        "post_ocr_ready": ocr_ready,
     }
     if shortcode:
         url = f"https://www.instagram.com/reel/{shortcode}/"
@@ -130,7 +159,7 @@ def instagram_payload(shortcode: str | None) -> dict[str, Any]:
             result = _run([sys.executable, str(INSTALOADER), "inspect", shortcode], 300)
             payload["instaloader_probe"] = {"ok": result.returncode == 0, "error": (result.stderr or result.stdout)[-1000:] if result.returncode else None}
     payload["ready"] = bool(gallery_ready and instaloader_ready and payload["cookie_file_exists"])
-    payload["dependency_health"] = _summarize_command_probes([gallery_probe, instaloader_probe])
+    payload["dependency_health"] = _summarize_command_probes([gallery_probe, instaloader_probe, easyocr_probe])
     _attach_health(payload, status="ok" if payload["ready"] else payload["dependency_health"]["status"], message="Instagram backend doctor status")
     return payload
 

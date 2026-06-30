@@ -46,6 +46,8 @@ def test_add_common_top_level_commands_registers_expected_commands():
     assert args.language == "en"
     root_help = parser.format_help().lower()
     assert "show project, provider, and output-location status" in root_help
+    assert "one-shot media" in root_help
+    assert "processing commands" in root_help
 
 
 def test_add_common_update_commands_registers_check_repository():

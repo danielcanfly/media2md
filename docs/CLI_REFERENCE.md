@@ -39,6 +39,16 @@ media2md doctor all
 media2md data backup --destination <backup-dir>
 ```
 
+Install extras when needed:
+
+```bash
+pip install "media2md[instagram]"
+pip install "media2md[instagram,ocr-mac-os]"
+pip install "media2md[instagram,ocr-windows-linux]"
+pip install "media2md[youtube]"
+pip install "media2md[tiktok]"
+```
+
 ## `media2md auth`
 
 ```text
@@ -79,6 +89,11 @@ media2md media add <media-url> --process-now
 media2md media process-registered <provider> <external-id>
 media2md media list --provider <provider>
 ```
+
+Notes:
+
+- Instagram single-media commands support reels, single-image posts, carousel posts, and legacy `/tv/` URLs.
+- Instagram post and carousel Markdown can include ordered OCR text from images when the matching OCR extra is installed.
 
 ## `media2md creator`
 
@@ -160,9 +175,14 @@ Examples:
 
 ```bash
 media2md doctor all
+media2md doctor instagram-backends
 media2md doctor youtube-access --video-id <video-id> --transcription-smoke-test
 media2md doctor tiktok-access --video-id <video-id> --creator <creator>
 ```
+
+Notes:
+
+- `doctor instagram-backends` reports backend readiness, cookie-file state, supported Instagram media surfaces, and the local OCR route for post/carousel extraction.
 
 ## `media2md runtime`
 
