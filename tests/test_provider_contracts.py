@@ -49,6 +49,8 @@ def test_provider_catalog_metadata_matches_expected_backends():
         assert metadata.capabilities.single_media is True
         assert metadata.capabilities.creator_sync is True
         assert metadata.capabilities.batch_drain is True
+        assert metadata.command_capabilities.read
+        assert metadata.command_capabilities.write
 
 
 def test_provider_adapter_lookup_is_case_insensitive():

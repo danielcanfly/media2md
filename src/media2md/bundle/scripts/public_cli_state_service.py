@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 
 from media2md.cli_output_service import make_output_model, make_section
 from media2md.health_taxonomy import health_category, summarize_health
+from media2md.provider_catalog import provider_command_matrix
 from media2md.provider_registry import provider_adapter
 from media2md.remediation_service import auth_status_command
 
@@ -333,6 +334,7 @@ def apply_settings_updates(config: dict[str, Any], args) -> dict[str, Any]:
 
 
 def agent_status_payload(config: dict[str, Any], *, schema_version: int) -> dict[str, Any]:
+    command_matrix = provider_command_matrix()
     payload = make_output_model(
         event="agent_status",
         schema="media2md.cli.agent_status/v1",
@@ -362,6 +364,7 @@ def agent_status_payload(config: dict[str, Any], *, schema_version: int) -> dict
                 "write": ["settings set", "creator add", "creator policy set", "creator run", "scheduler tick", "auth refresh"],
                 "confirmation": ["update install", "update rollback", "creator delete", "data delete-all", "drain"],
             },
+            "provider_commands": command_matrix,
         },
     )
     return payload.as_dict()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Iterable
+from .provider_catalog import provider_command_matrix
 
 
 def media2md_install_command(*extras: str) -> str:
@@ -127,3 +128,38 @@ def guidance_lines(*groups: Iterable[str]) -> list[str]:
             if text and text not in lines:
                 lines.append(text)
     return lines
+
+
+def provider_command_guidance(provider: str) -> dict[str, list[str]]:
+    return provider_command_matrix().get(provider, {"read": [], "write": [], "confirmation": []})
+
+
+def provider_access_guidance(
+    provider: str,
+    *,
+    error_code: str | None = None,
+    required_action: str | None = None,
+) -> list[str]:
+    lines: list[str] = []
+    if error_code == "missing_dependency":
+        lines.append(media2md_install_guidance(provider))
+    if error_code == "impersonation_unavailable":
+        lines.append(media2md_install_guidance("tiktok", "youtube"))
+    if error_code == "youtube_po_token_required":
+        lines.extend(
+            [
+                "Run: media2md auth verify youtube",
+                "Run: media2md doctor youtube-access --video-id=<VIDEO_ID>",
+            ]
+        )
+    if required_action == "provide_valid_video_id":
+        lines.append("Retry with a valid media URL or media ID.")
+    elif required_action == "configure_youtube_audio_strategies":
+        lines.append("Run: media2md settings show")
+    elif required_action == "install_impersonation":
+        lines.append(media2md_install_guidance("tiktok", "youtube"))
+    elif required_action == "install_provider_extra":
+        lines.append(media2md_install_guidance(provider))
+    elif required_action in {"verify_or_reauthenticate_youtube_session", "verify_youtube_session_or_configure_non_browser_access"}:
+        lines.extend(youtube_profile_guidance(action="doctor"))
+    return guidance_lines(lines)

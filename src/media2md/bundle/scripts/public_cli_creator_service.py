@@ -7,10 +7,15 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlsplit
+from media2md.cli_output_service import make_event_payload
 
 
 def creator_policy_payload(*, provider: str, creator: str, effective_policy: Callable[[str, str], dict[str, Any]]) -> dict[str, Any]:
-    return {"event": "creator_policy", "provider": provider, "creator": creator, "policy": effective_policy(provider, creator)}
+    return make_event_payload(
+        event="creator_policy",
+        schema="media2md.cli.creator_policy/v1",
+        data={"provider": provider, "creator": creator, "policy": effective_policy(provider, creator)},
+    )
 
 
 def print_policy(payload: dict[str, Any]) -> None:
@@ -62,7 +67,7 @@ def emit_creator_run_catalog_context(
 ) -> None:
     source_url = existing_row.get("source_url") if existing_row else None
     payload: dict[str, Any] = {
-        "event": "creator_run_catalog_context",
+        **make_event_payload(event="creator_run_catalog_context", schema="media2md.cli.creator_run_catalog_context/v1"),
         "provider": provider,
         "creator": creator,
         "catalog_source_url": source_url,
@@ -105,10 +110,17 @@ def emit_sync_warning_or_fail(
         if args.output == "human":
             print(f"SYNC_FAILED provider={provider} creator={creator}; batch_not_started=true", file=sys.stderr)
         else:
-            emit({"event": "sync_failed", "provider": provider, "creator": creator, "batch_not_started": True}, args.output)
+            emit(
+                make_event_payload(
+                    event="sync_failed",
+                    schema="media2md.cli.sync_failed/v1",
+                    data={"provider": provider, "creator": creator, "batch_not_started": True},
+                ),
+                args.output,
+            )
         return sync_code
     warning = {
-        "event": "sync_warning",
+        **make_event_payload(event="sync_warning", schema="media2md.cli.sync_warning/v1"),
         "provider": provider,
         "creator": creator,
         "using_cached_catalog": True,

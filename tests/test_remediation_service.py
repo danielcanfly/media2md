@@ -5,6 +5,8 @@ from media2md.remediation_service import (
     auth_verify_command,
     media2md_install_command,
     media2md_install_guidance,
+    provider_access_guidance,
+    provider_command_guidance,
     provider_profile_guidance,
     uninstall_dry_run_next_step,
     youtube_profile_guidance,
@@ -51,3 +53,17 @@ def test_youtube_profile_guidance_uses_public_media2md_commands():
 
 def test_uninstall_dry_run_next_step_matches_cli_message():
     assert uninstall_dry_run_next_step() == "run `media2md uninstall` to remove the installed Python package"
+
+
+def test_provider_command_guidance_reads_from_shared_matrix():
+    guidance = provider_command_guidance("youtube")
+    assert "creator run" in guidance["write"]
+    assert "doctor youtube-access" in guidance["read"]
+
+
+def test_provider_access_guidance_covers_dependency_and_doctor_paths():
+    missing = provider_access_guidance("youtube", error_code="missing_dependency", required_action="install_provider_extra")
+    assert any("pip install" in line for line in missing)
+    po = provider_access_guidance("youtube", error_code="youtube_po_token_required", required_action="verify_youtube_session_or_configure_non_browser_access")
+    assert "Run: media2md auth verify youtube" in po
+    assert "Run: media2md doctor youtube-access --video-id=<VIDEO_ID>" in po

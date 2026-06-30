@@ -14,7 +14,7 @@ from typing import Any
 
 from media2md.cli_output_service import make_output_model, make_section
 from media2md.health_taxonomy import health_category, normalize_health_status, summarize_health
-from media2md.remediation_service import media2md_install_guidance
+from media2md.remediation_service import media2md_install_guidance, provider_access_guidance
 from media2md.results import HealthResult
 from media2md.probe import probe_command
 from media2md_paths import command_path
@@ -257,11 +257,13 @@ def _access_probe(provider: str, url: str, *, transcription_smoke_test: bool = F
     payload["transcription_binary_ready_probe"] = bool(whisper_ready)
     if not yt_ready:
         payload.update(error="yt-dlp is not installed", error_code="missing_dependency", retryable=False, action_required=True, required_action="install_provider_extra")
+        payload["guidance"] = provider_access_guidance(provider, error_code="missing_dependency", required_action="install_provider_extra")
         payload["dependency_health"] = _summarize_command_probes([yt_probe, ffmpeg_probe, whisper_probe])
         _attach_health(payload, status="warn", message=payload["error"])
         return payload
     if provider == "tiktok" and not impersonation_args("tiktok"):
         payload.update(error="No browser impersonation target is available.", error_code="impersonation_unavailable", retryable=False, action_required=True, required_action="install_impersonation")
+        payload["guidance"] = provider_access_guidance(provider, error_code="impersonation_unavailable", required_action="install_impersonation")
         payload["dependency_health"] = _summarize_command_probes([yt_probe, ffmpeg_probe, whisper_probe])
         _attach_health(payload, status="warn", message=payload["error"])
         return payload
@@ -293,6 +295,12 @@ def _access_probe(provider: str, url: str, *, transcription_smoke_test: bool = F
                 required_action=auth_preflight.get("required_action") or "verify_or_reauthenticate_youtube_session",
                 auth_state=auth_preflight.get("auth_state"),
                 guidance=auth_preflight.get("guidance", []),
+            )
+        else:
+            payload["guidance"] = provider_access_guidance(
+                provider,
+                error_code=str(payload.get("error_code") or ""),
+                required_action=payload.get("required_action"),
             )
         _attach_health(payload, status=payload.get("error_code") == "youtube_session_unavailable" and "warn" or "error", message=payload["error"])
         return payload
@@ -347,6 +355,11 @@ def _access_probe(provider: str, url: str, *, transcription_smoke_test: bool = F
         if not successful:
             error = "; ".join(f"{item['strategy']}={item['error']}" for item in results) or "No YouTube audio strategy was available"
             payload.update(error=error, **classify_access_error(provider, error))
+            payload["guidance"] = provider_access_guidance(
+                provider,
+                error_code=str(payload.get("error_code") or ""),
+                required_action=payload.get("required_action"),
+            )
             _attach_health(payload, status="error", message=payload["error"])
             return payload
         payload["audio_download_ready"] = True
@@ -368,6 +381,11 @@ def _access_probe(provider: str, url: str, *, transcription_smoke_test: bool = F
             if probe.returncode != 0:
                 error = (probe.stderr or probe.stdout or "download probe failed")[-4000:]
                 payload.update(error=error, **classify_access_error(provider, error))
+                payload["guidance"] = provider_access_guidance(
+                    provider,
+                    error_code=str(payload.get("error_code") or ""),
+                    required_action=payload.get("required_action"),
+                )
                 _attach_health(payload, status="error", message=payload["error"])
                 return payload
             payload["audio_download_ready"] = True

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from media2md.cli_output_service import make_output_model, make_section
+from media2md.cli_output_service import make_event_payload, make_output_model, make_section
 
 
 def test_make_section_normalizes_status_and_category():
@@ -27,3 +27,16 @@ def test_make_output_model_summarizes_sections():
     assert payload["category"] == "action_required"
     assert len(payload["sections"]) == 2
     assert payload["version"] == "0.9.4"
+
+
+def test_make_event_payload_adds_schema_and_data():
+    payload = make_event_payload(
+        event="creator_policy",
+        schema="media2md.cli.creator_policy/v1",
+        data={"provider": "youtube"},
+    )
+    assert payload == {
+        "event": "creator_policy",
+        "schema": "media2md.cli.creator_policy/v1",
+        "provider": "youtube",
+    }

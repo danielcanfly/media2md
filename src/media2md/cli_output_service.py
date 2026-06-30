@@ -7,6 +7,17 @@ from .health_taxonomy import health_category, normalize_health_status, summarize
 from .results import HealthResult
 
 
+def make_event_payload(
+    *,
+    event: str,
+    schema: str,
+    data: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload = {"event": event, "schema": schema}
+    payload.update(data or {})
+    return payload
+
+
 def make_section(
     name: str,
     *,

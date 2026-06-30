@@ -42,6 +42,7 @@ def test_creator_policy_payload_wraps_effective_policy():
     )
     assert payload == {
         "event": "creator_policy",
+        "schema": "media2md.cli.creator_policy/v1",
         "provider": "youtube",
         "creator": "creator-name",
         "policy": {"provider": "youtube", "creator": "creator-name"},
@@ -185,6 +186,7 @@ def test_creator_run_catalog_preflight_returns_existing_row_on_success():
     assert existing_row == rows[0]
     assert outcome is None
     assert emitted[0]["event"] == "creator_run_catalog_context"
+    assert emitted[0]["schema"] == "media2md.cli.creator_run_catalog_context/v1"
     assert emitted[0]["using_saved_catalog"] is True
 
 

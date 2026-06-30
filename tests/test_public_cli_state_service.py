@@ -145,6 +145,8 @@ def test_agent_status_payload_keeps_schema_version():
     assert payload["ndjson_schema_version"] == 13
     assert payload["permissions"] == {"mode": "strict"}
     assert "creator run" in payload["commands"]["write"]
+    assert "youtube" in payload["provider_commands"]
+    assert "doctor youtube-access" in payload["provider_commands"]["youtube"]["read"]
 
 
 def test_creator_catalog_metadata_derives_youtube_surface_and_configured_surfaces():
