@@ -62,24 +62,26 @@ def normalize_creator(provider: str, value: str) -> NormalizedTarget:
     if provider == "youtube":
         if text.startswith("@") and "/" not in text:
             handle = _clean_handle(text)
-            return NormalizedTarget(provider, "creator", f"https://www.youtube.com/@{handle}", creator=handle)
+            return NormalizedTarget(provider, "creator", f"https://www.youtube.com/@{handle}/videos", creator=handle)
         match = re.search(r"youtube\.com/@([^/?#]+)", text, re.I)
         if match:
             handle = _clean_handle(match.group(1))
-            return NormalizedTarget(provider, "creator", f"https://www.youtube.com/@{handle}", creator=handle)
+            return NormalizedTarget(provider, "creator", f"https://www.youtube.com/@{handle}/videos", creator=handle)
         channel = re.search(r"youtube\.com/channel/([^/?#]+)", text, re.I)
         if channel:
             channel_id = channel.group(1)
-            return NormalizedTarget(provider, "creator", f"https://www.youtube.com/channel/{channel_id}", creator=channel_id)
+            return NormalizedTarget(provider, "creator", f"https://www.youtube.com/channel/{channel_id}/videos", creator=channel_id)
         if "youtube.com" not in text and "youtu.be" not in text:
             handle = _clean_handle(text)
-            return NormalizedTarget(provider, "creator", f"https://www.youtube.com/@{handle}", creator=handle)
+            return NormalizedTarget(provider, "creator", f"https://www.youtube.com/@{handle}/videos", creator=handle)
         parts = urlsplit(text)
         path = parts.path.rstrip("/")
         if any(token in path for token in ("/watch", "/shorts/", "/live/")) or parts.netloc.lower().endswith("youtu.be"):
             raise ValueError("Expected a YouTube channel, not a media URL.")
         base_path = re.sub(r"/(videos|shorts|streams)$", "", path, flags=re.I)
-        canonical = urlunsplit((parts.scheme or "https", parts.netloc or "www.youtube.com", base_path, "", ""))
+        canonical = urlunsplit((parts.scheme or "https", parts.netloc or "www.youtube.com", path, "", ""))
+        if not canonical.endswith(("/videos", "/shorts", "/streams")):
+            canonical += "/videos"
         creator = base_path.split("/")[-1].lstrip("@") or "youtube-channel"
         return NormalizedTarget(provider, "creator", canonical, creator=creator)
 
