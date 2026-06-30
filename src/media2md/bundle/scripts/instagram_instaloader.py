@@ -128,11 +128,16 @@ def _assets_for_post(post: Any) -> list[dict[str, Any]]:
                 asset_url = video_url if is_video and video_url else display_url
                 if not asset_url:
                     continue
+                width = getattr(node, "display_width", None)
+                height = getattr(node, "display_height", None)
                 assets.append(
                     {
                         "index": index,
                         "kind": "video" if is_video else "image",
                         "source_url": asset_url,
+                        "display_url": display_url or asset_url,
+                        "width": int(width) if width else None,
+                        "height": int(height) if height else None,
                         "ocr_candidate": not is_video,
                     }
                 )
@@ -150,6 +155,7 @@ def _assets_for_post(post: Any) -> list[dict[str, Any]]:
                 "index": 1,
                 "kind": "video" if is_video else "image",
                 "source_url": asset_url,
+                "display_url": display_url or asset_url,
                 "ocr_candidate": not is_video,
             }
         )

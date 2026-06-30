@@ -172,7 +172,8 @@ def test_process_row_instagram_post_uses_ocr_rendering(monkeypatch, tmp_path: Pa
     )
     monkeypatch.setattr(generic_media, "canonical_media_source", lambda provider, external_id, source_url, creator: source_url)
 
-    final = generic_media.process_row(db, row)
+    processed = generic_media.process_row(db, row)
+    final = Path(processed["final_path"])
 
     assert final.is_file()
     assert final.read_text(encoding="utf-8").startswith("---\nplatform: instagram")

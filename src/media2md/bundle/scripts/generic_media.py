@@ -1184,6 +1184,18 @@ def _hydrate_instagram_post_metadata(canonical_source: str, creator: str | None 
     return payload
 
 
+def summarize_instagram_assets(metadata: dict[str, Any]) -> dict[str, Any]:
+    assets = [dict(item) for item in (metadata.get("assets") or []) if isinstance(item, dict)]
+    image_assets = [item for item in assets if str(item.get("kind") or "") == "image"]
+    video_assets = [item for item in assets if str(item.get("kind") or "") == "video"]
+    return {
+        "asset_count": len(assets),
+        "image_count": len(image_assets),
+        "video_count": len(video_assets),
+        "asset_kinds": [str(item.get("kind") or "unknown") for item in assets],
+    }
+
+
 
 
 def youtube_caption_settings() -> tuple[bool, list[str]]:
@@ -1612,7 +1624,7 @@ def _cleanup_partial_downloads(work: Path) -> None:
         path.unlink(missing_ok=True)
 
 
-def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Path:
+def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
     provider = str(row["provider"])
     external_id = str(row["external_id"])
     media_type = (str(row["media_type"]) if "media_type" in row.keys() and row["media_type"] else infer_media_type(provider, row["source_url"]))
@@ -1647,6 +1659,7 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Path:
     resumed_from_checkpoint = False
     succeeded = False
     no_audio_stream = False
+    result_summary: dict[str, Any] = {}
     try:
         text: str | None = None
         post_ocr_mode = provider == "instagram" and media_type in {"instagram_post", "instagram_carousel"}
@@ -1782,6 +1795,7 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Path:
                         "description": str(row["description"] or metadata_for_render.get("description") or ""),
                     }
                 )
+                result_summary = summarize_instagram_assets(metadata_for_render)
                 content = render_instagram_post_markdown(
                     metadata=metadata_for_render,
                     creator=creator,
@@ -1839,12 +1853,17 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Path:
                 "markdown_path=?, markdown_sha256=?, completed_at=?, updated_at=?, last_error=NULL WHERE id=?",
                 (creator, canonical_source, processed_duration, str(final.relative_to(ROOT)), digest, iso_now(), iso_now(), row["id"]),
             )
-        conn.commit()
+            conn.commit()
         updated_row = conn.execute("SELECT * FROM media WHERE id=?", (row["id"],)).fetchone()
         if updated_row:
             sync_registry(provider, external_id, updated_row)
         succeeded = True
-        return final
+        return {
+            "final_path": final,
+            "media_type": media_type,
+            "processing_class": item_class,
+            "result_summary": result_summary,
+        }
     finally:
         if succeeded:
             cleanup_workspace_paths(work, transcript_dir)
@@ -1878,10 +1897,18 @@ def add(url: str, process_now: bool, output: str, provider: str | None = None, c
     emit({"event":"media_tracked", **metadata, "status":row["status"]}, output)
     if process_now and row["status"] != "completed":
         try:
-            final = process_row(conn, row)
+            processed = process_row(conn, row)
+            final = Path(processed["final_path"])
+            summary = dict(processed.get("result_summary") or {})
             print("MEDIA_COMPLETED")
             print(f"markdown={final.relative_to(ROOT)}")
-            emit({"event":"media_completed", **metadata, "markdown_path":str(final.relative_to(ROOT))}, output)
+            print(f"result_folder={final.parent}")
+            print(f"latest_markdown_path={final}")
+            if "asset_count" in summary:
+                print(f"asset_count={summary['asset_count']}")
+            if "image_count" in summary:
+                print(f"image_count={summary['image_count']}")
+            emit({"event":"media_completed", **metadata, "markdown_path":str(final.relative_to(ROOT)), **summary}, output)
         except KeyboardInterrupt:
             conn.execute("UPDATE media SET status='pending', last_error='Interrupted by user; safe to resume', updated_at=? WHERE id=?", (iso_now(), row["id"]))
             conn.commit()
@@ -1974,10 +2001,18 @@ def _process_registered_unlocked(provider: str, external_id: str, output: str) -
     print(f"source_url={metadata['source_url']}")
     emit({"event": "registered_media_selected", **metadata}, output)
     try:
-        final = process_row(conn, row)
+        processed = process_row(conn, row)
+        final = Path(processed["final_path"])
+        summary = dict(processed.get("result_summary") or {})
         print("MEDIA_COMPLETED")
         print(f"markdown={final.relative_to(ROOT)}")
-        emit({"event": "media_completed", **metadata, "markdown_path": str(final.relative_to(ROOT))}, output)
+        print(f"result_folder={final.parent}")
+        print(f"latest_markdown_path={final}")
+        if "asset_count" in summary:
+            print(f"asset_count={summary['asset_count']}")
+        if "image_count" in summary:
+            print(f"image_count={summary['image_count']}")
+        emit({"event": "media_completed", **metadata, "markdown_path": str(final.relative_to(ROOT)), **summary}, output)
     except KeyboardInterrupt:
         conn.execute(
             "UPDATE media SET status='pending', last_error='Interrupted by user; safe to resume', updated_at=? WHERE id=?",
