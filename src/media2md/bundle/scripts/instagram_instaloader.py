@@ -105,6 +105,57 @@ def media_urls(post: Any) -> list[str]:
     return urls
 
 
+def _surface_for_post(post: Any) -> str:
+    typename = str(getattr(post, "typename", "") or "").strip()
+    if typename == "GraphImage":
+        return "post"
+    if typename == "GraphSidecar":
+        return "post"
+    if bool(getattr(post, "is_video", False)):
+        return "reel"
+    return "post"
+
+
+def _assets_for_post(post: Any) -> list[dict[str, Any]]:
+    assets: list[dict[str, Any]] = []
+    sidecar = getattr(post, "get_sidecar_nodes", None)
+    if callable(sidecar):
+        try:
+            for index, node in enumerate(sidecar(), start=1):
+                is_video = bool(getattr(node, "is_video", False))
+                display_url = str(getattr(node, "display_url", None) or "")
+                video_url = str(getattr(node, "video_url", None) or "")
+                asset_url = video_url if is_video and video_url else display_url
+                if not asset_url:
+                    continue
+                assets.append(
+                    {
+                        "index": index,
+                        "kind": "video" if is_video else "image",
+                        "source_url": asset_url,
+                        "ocr_candidate": not is_video,
+                    }
+                )
+        except Exception:
+            assets = []
+    if assets:
+        return assets
+    is_video = bool(getattr(post, "is_video", False))
+    display_url = str(getattr(post, "url", None) or getattr(post, "display_url", None) or "")
+    video_url = str(getattr(post, "video_url", None) or "")
+    asset_url = video_url if is_video and video_url else display_url
+    if asset_url:
+        assets.append(
+            {
+                "index": 1,
+                "kind": "video" if is_video else "image",
+                "source_url": asset_url,
+                "ocr_candidate": not is_video,
+            }
+        )
+    return assets
+
+
 
 def inspect_post(shortcode: str) -> dict[str, Any]:
     import instaloader
@@ -121,18 +172,31 @@ def inspect_post(shortcode: str) -> dict[str, Any]:
         )
     username = str(getattr(owner, "username", None) or "unknown")
     owner_id = str(getattr(owner, "userid", None) or username)
+    surface = _surface_for_post(post)
+    assets = _assets_for_post(post)
+    has_multiple_assets = len(assets) > 1
+    if surface == "reel":
+        media_type = "instagram_reel"
+    elif has_multiple_assets:
+        media_type = "instagram_carousel"
+    else:
+        media_type = "instagram_post"
     return {
         "provider": "instagram",
         "external_id": str(post.shortcode),
         "creator": username,
         "creator_external_id": owner_id,
         "creator_display_name": str(getattr(owner, "full_name", None) or username),
-        "title": f"Instagram Reel {post.shortcode}",
+        "title": f"Instagram {'Reel' if media_type == 'instagram_reel' else 'Post'} {post.shortcode}",
         "description": str(getattr(post, "caption", None) or ""),
         "published_at": iso(getattr(post, "date_utc", None)),
-        "duration_seconds": getattr(post, "video_duration", None),
-        "source_url": f"https://www.instagram.com/reel/{post.shortcode}/",
+        "duration_seconds": getattr(post, "video_duration", None) if media_type == "instagram_reel" else None,
+        "source_url": f"https://www.instagram.com/{'reel' if surface == 'reel' else 'p'}/{post.shortcode}/",
         "backend_used": "instaloader",
+        "surface": surface,
+        "media_type": media_type,
+        "processing_class": media_type,
+        "assets": assets,
     }
 
 

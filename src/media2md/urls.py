@@ -10,6 +10,7 @@ YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 TIKTOK_ID_RE = re.compile(r"^\d{8,24}$")
 INSTAGRAM_CODE_RE = re.compile(r"^[A-Za-z0-9_-]{5,30}$")
 HANDLE_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+INSTAGRAM_MEDIA_SURFACES = ("reel", "post", "tv")
 
 
 @dataclass(frozen=True)
@@ -63,6 +64,19 @@ def _youtube_creator_target(path: str, *, scheme: str = "https", netloc: str = "
     canonical_url = urlunsplit((scheme or "https", netloc or "www.youtube.com", f"{base_path}/{surface}", "", ""))
     creator = base_path.split("/")[-1].lstrip("@") or "youtube-channel"
     return NormalizedTarget("youtube", "creator", canonical_url, creator=creator, surface=surface)
+
+
+def _instagram_surface_and_code(text: str) -> tuple[str, str] | None:
+    match = re.search(r"instagram\.com/(reel|reels|p|tv)/([A-Za-z0-9_-]+)", text, re.I)
+    if not match:
+        return None
+    raw_surface = match.group(1).lower()
+    code = match.group(2)
+    if raw_surface in {"reel", "reels"}:
+        return "reel", code
+    if raw_surface == "p":
+        return "post", code
+    return "tv", code
 
 
 def normalize_creator(provider: str, value: str) -> NormalizedTarget:
@@ -140,12 +154,13 @@ def normalize_media(provider: str, value: str, creator: str | None = None) -> No
 
     if provider == "instagram":
         if INSTAGRAM_CODE_RE.fullmatch(text) and "instagram.com" not in text:
-            return NormalizedTarget(provider, "media", f"https://www.instagram.com/reel/{text}/", media_id=text)
-        match = re.search(r"instagram\.com/(?:reel|reels|p|tv)/([A-Za-z0-9_-]+)", text, re.I)
-        if not match:
+            return NormalizedTarget(provider, "media", f"https://www.instagram.com/reel/{text}/", media_id=text, surface="reel")
+        resolved = _instagram_surface_and_code(text)
+        if not resolved:
             raise ValueError("Could not determine an Instagram shortcode.")
-        code = match.group(1)
-        return NormalizedTarget(provider, "media", f"https://www.instagram.com/reel/{code}/", media_id=code)
+        surface, code = resolved
+        surface_path = "p" if surface == "post" else surface
+        return NormalizedTarget(provider, "media", f"https://www.instagram.com/{surface_path}/{code}/", media_id=code, surface=surface)
 
     raise ValueError(f"Unsupported provider: {provider}")
 

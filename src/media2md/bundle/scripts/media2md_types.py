@@ -8,6 +8,8 @@ from urllib.parse import urlsplit, urlunsplit
 
 MEDIA_TYPES = (
     "instagram_reel",
+    "instagram_post",
+    "instagram_carousel",
     "youtube_video",
     "youtube_short",
     "youtube_stream",
@@ -18,6 +20,8 @@ PROCESSING_CLASSES = (*MEDIA_TYPES, "youtube_long")
 
 DEFAULT_BATCH_SIZES: dict[str, int] = {
     "instagram_reel": 30,
+    "instagram_post": 30,
+    "instagram_carousel": 15,
     "tiktok_video": 100,
     "youtube_short": 30,
     "youtube_video": 5,
@@ -36,6 +40,8 @@ _TYPE_PRIORITY = {
     "youtube_stream": 20,
     "youtube_video": 10,
     "instagram_reel": 10,
+    "instagram_post": 10,
+    "instagram_carousel": 10,
     "tiktok_video": 10,
 }
 
@@ -51,6 +57,8 @@ def infer_media_type(
     provider = str(provider).lower()
     url = str(source_url or "").lower()
     if provider == "instagram":
+        if "/p/" in url:
+            return "instagram_post"
         return "instagram_reel"
     if provider == "tiktok":
         return "tiktok_video"
@@ -87,6 +95,8 @@ def output_bucket(media_type: str) -> str:
         "youtube_short": "shorts",
         "youtube_stream": "streams",
         "instagram_reel": "reels",
+        "instagram_post": "posts",
+        "instagram_carousel": "posts",
         "tiktok_video": "videos",
     }.get(str(media_type), "media")
 

@@ -27,6 +27,7 @@ from media2md_urls import detect_provider as detect_provider_from_value, normali
 from media2md_ytdlp import (classify_access_error, impersonation_args, youtube_access_args, youtube_runtime_args,
     youtube_audio_settings, youtube_download_strategies)
 from media2md_youtube_session import youtube_auth_args, verify_youtube_session
+from media2md_ocr import ocr_install_extra, perform_ocr
 from media2md_runtime import (
     CommandExecutionError, classify_transcription_exception, operation_lock, run_logged, safe_artifact_stem,
 )
@@ -704,11 +705,19 @@ def _inspect_instagram_gallery(url: str, target: Any, creator: str | None) -> di
     if not metadata: raise RuntimeError("gallery-dl returned no Instagram metadata.")
     external_id=str(metadata.get("post_shortcode") or metadata.get("shortcode") or target.media_id or "")
     handle=str(metadata.get("username") or (metadata.get("owner") or {}).get("username") or creator or "unknown")
+    surface = str(getattr(target, "surface", None) or "reel")
+    if surface == "reel":
+        media_type = "instagram_reel"
+    else:
+        sidecar_count = int(metadata.get("sidecar_count") or 0)
+        image_count = int(metadata.get("image_count") or 0)
+        media_type = "instagram_carousel" if max(sidecar_count, image_count, 0) > 1 else "instagram_post"
     return {"provider":"instagram","external_id":external_id,"creator":handle,"creator_external_id":str(metadata.get("owner_id") or metadata.get("user_id") or handle),
             "creator_identifiers":{"user_id": str(metadata.get("owner_id") or metadata.get("user_id") or "")},
-            "creator_display_name":handle,"title":f"Instagram Reel {external_id}","description":str(metadata.get("description") or ""),
-            "published_at":str(metadata.get("post_date") or metadata.get("date") or "") or None,"duration_seconds":metadata.get("duration"),"source_url":url,
-            "media_type":"instagram_reel","processing_class":"instagram_reel",
+            "creator_display_name":handle,"title":f"Instagram {'Reel' if media_type == 'instagram_reel' else 'Post'} {external_id}","description":str(metadata.get("description") or ""),
+            "published_at":str(metadata.get("post_date") or metadata.get("date") or "") or None,"duration_seconds":metadata.get("duration") if media_type == "instagram_reel" else None,"source_url":url,
+            "surface":surface,
+            "media_type":media_type,"processing_class":media_type,
             "backend_used":"gallery-dl"}
 
 
@@ -719,8 +728,6 @@ def _inspect_instagram_instaloader(shortcode: str) -> dict[str, Any]:
     payload = json.loads(result.stdout)
     payload.setdefault("backend_used", "instaloader")
     payload.setdefault("creator_identifiers", {"user_id": str(payload.get("creator_external_id") or "")})
-    payload.setdefault("media_type", "instagram_reel")
-    payload.setdefault("processing_class", "instagram_reel")
     return payload
 
 
@@ -821,6 +828,19 @@ def inspect(value: str, provider: str | None = None, creator: str | None = None)
         if backend in {"auto", "instaloader"}:
             try:
                 payload = _inspect_instagram_instaloader(str(target.media_id))
+                surface = str(target.surface or payload.get("surface") or "reel")
+                payload["surface"] = surface
+                payload["source_url"] = target.canonical_url
+                if surface == "tv":
+                    payload["media_type"] = "instagram_reel"
+                    payload["processing_class"] = "instagram_reel"
+                elif surface == "post":
+                    assets = payload.get("assets") or []
+                    payload["media_type"] = "instagram_carousel" if len(assets) > 1 else "instagram_post"
+                    payload["processing_class"] = str(payload["media_type"])
+                else:
+                    payload.setdefault("media_type", "instagram_reel")
+                    payload.setdefault("processing_class", "instagram_reel")
                 if gallery_error:
                     payload["backend_fallback_from"] = "gallery-dl"
                     payload["backend_fallback_reason"] = str(gallery_error)
@@ -953,10 +973,42 @@ def locale_pack() -> dict[str, str]:
     except Exception:
         pass
     packs = {
-        "en": {"caption":"Description", "transcript":"Transcript", "title":"Social Video"},
-        "zh-TW": {"caption":"原始說明", "transcript":"語音逐字稿", "title":"社群影片"},
-        "zh-CN": {"caption":"原始说明", "transcript":"语音转录", "title":"社交视频"},
-        "ja": {"caption":"元の説明", "transcript":"文字起こし", "title":"ソーシャル動画"},
+        "en": {
+            "caption": "Description",
+            "transcript": "Transcript",
+            "title": "Social Video",
+            "image_ocr": "Image OCR",
+            "combined_ocr": "Combined OCR Notes",
+            "image": "Image",
+            "no_image_text": "_No text detected in image._",
+        },
+        "zh-TW": {
+            "caption": "原始說明",
+            "transcript": "語音逐字稿",
+            "title": "社群影片",
+            "image_ocr": "圖片文字擷取",
+            "combined_ocr": "合併文字筆記",
+            "image": "圖片",
+            "no_image_text": "_圖片中未偵測到文字。_",
+        },
+        "zh-CN": {
+            "caption": "原始说明",
+            "transcript": "语音转录",
+            "title": "社交视频",
+            "image_ocr": "图片文字提取",
+            "combined_ocr": "合并文字笔记",
+            "image": "图片",
+            "no_image_text": "_图片中未检测到文字。_",
+        },
+        "ja": {
+            "caption": "元の説明",
+            "transcript": "文字起こし",
+            "title": "ソーシャル動画",
+            "image_ocr": "画像OCR",
+            "combined_ocr": "OCR統合メモ",
+            "image": "画像",
+            "no_image_text": "_画像内にテキストは検出されませんでした。_",
+        },
     }
     return packs.get(locale, packs["en"])
 
@@ -967,6 +1019,169 @@ def sha256(path: Path) -> str:
         for chunk in iter(lambda: f.read(1024*1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def _instagram_media_assets(metadata: dict[str, Any], work: Path) -> list[Path]:
+    assets = metadata.get("assets") or []
+    files: list[Path] = []
+    for index, asset in enumerate(assets, start=1):
+        if str(asset.get("kind") or "") != "image":
+            continue
+        source_url = str(asset.get("source_url") or "").strip()
+        if not source_url:
+            continue
+        suffix = Path(source_url.split("?", 1)[0]).suffix or ".jpg"
+        target = work / f"asset_{index}{suffix}"
+        request = urllib.request.Request(
+            source_url,
+            headers={"User-Agent": "Mozilla/5.0", "Referer": str(metadata.get("source_url") or "https://www.instagram.com/")},
+        )
+        with urllib.request.urlopen(request, timeout=180) as response, target.open("wb") as handle:
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                handle.write(chunk)
+        if target.is_file() and target.stat().st_size > 0:
+            files.append(target)
+    return files
+
+
+def render_standard_markdown(
+    *,
+    provider: str,
+    creator: str,
+    external_id: str,
+    media_type: str,
+    item_class: str,
+    artifact_stem: str,
+    canonical_source: str,
+    published_at: str,
+    transcription_source: str,
+    caption_language: str | None,
+    transcription_model: str | None,
+    processed_duration: float,
+    audio_download_strategy: str | None,
+    audio_used_auth: bool | None,
+    audio_attempts: list[dict[str, Any]],
+    chunk_count: int,
+    chunk_seconds_used: int | None,
+    resumed_from_checkpoint: bool,
+    title: str,
+    description: str,
+    text: str,
+) -> str:
+    pack = locale_pack()
+    return "\n".join([
+        "---",
+        f"platform: {provider}",
+        f"creator: {json.dumps(creator, ensure_ascii=False)}",
+        f"media_id: {json.dumps(external_id)}",
+        f"media_type: {json.dumps(media_type)}",
+        f"processing_class: {json.dumps(item_class)}",
+        f"artifact_stem: {json.dumps(artifact_stem)}",
+        f"source_url: {json.dumps(canonical_source)}",
+        f"published_at: {json.dumps(published_at or '')}",
+        f"processed_at: {json.dumps(iso_now())}",
+        f"transcription_source: {json.dumps(transcription_source)}",
+        f"caption_language: {json.dumps(caption_language)}",
+        f"transcription_model: {json.dumps(transcription_model)}",
+        f"duration_seconds: {json.dumps(processed_duration)}",
+        f"audio_download_strategy: {json.dumps(audio_download_strategy)}",
+        f"audio_used_auth: {json.dumps(audio_used_auth)}",
+        f"audio_attempts: {json.dumps(audio_attempts, ensure_ascii=False)}",
+        f"chunk_count: {json.dumps(chunk_count)}",
+        f"chunk_seconds: {json.dumps(chunk_seconds_used)}",
+        f"resumed_from_checkpoint: {json.dumps(resumed_from_checkpoint)}",
+        "---", "",
+        f"# {pack['title']}: {title or external_id}", "",
+        f"## {pack['caption']}", "", description or "_No description provided._", "",
+        f"## {pack['transcript']}", "", text or "_No speech detected._", "",
+    ])
+
+
+def render_instagram_post_markdown(
+    *,
+    metadata: dict[str, Any],
+    creator: str,
+    external_id: str,
+    media_type: str,
+    item_class: str,
+    artifact_stem: str,
+    canonical_source: str,
+    published_at: str,
+    work: Path,
+) -> str:
+    pack = locale_pack()
+    images = _instagram_media_assets(metadata, work)
+    if not images:
+        raise RuntimeError("Instagram post OCR rendering requires at least one image asset.")
+    ocr_payloads: list[dict[str, Any]] = []
+    combined_lines: list[str] = []
+    for index, image in enumerate(images, start=1):
+        try:
+            ocr = perform_ocr(image, config=load_config())
+        except Exception as exc:
+            extra = ocr_install_extra()
+            raise RuntimeError(
+                f"Instagram OCR failed for {image.name}: {exc}. "
+                f"Install support with: python -m pip install 'media2md[{extra}]'"
+            ) from exc
+        text = str(ocr.get("text") or "").strip()
+        if text:
+            combined_lines.append(text)
+        ocr_payloads.append({"index": index, "image": image, "ocr": ocr})
+    engine = str(ocr_payloads[0]["ocr"].get("engine") or "unknown")
+    lines = [
+        "---",
+        "platform: instagram",
+        f"creator: {json.dumps(creator, ensure_ascii=False)}",
+        f"media_id: {json.dumps(external_id)}",
+        f"media_type: {json.dumps(media_type)}",
+        f"processing_class: {json.dumps(item_class)}",
+        f"artifact_stem: {json.dumps(artifact_stem)}",
+        f"source_url: {json.dumps(canonical_source)}",
+        f"published_at: {json.dumps(published_at or '')}",
+        f"processed_at: {json.dumps(iso_now())}",
+        f"ocr_engine: {json.dumps(engine)}",
+        f"image_count: {json.dumps(len(images))}",
+        "---",
+        "",
+        f"# Instagram Post: {external_id}",
+        "",
+        f"## {pack['caption']}",
+        "",
+        str(metadata.get("description") or "").strip() or "_No description provided._",
+        "",
+        f"## {pack['image_ocr']}",
+        "",
+    ]
+    for payload in ocr_payloads:
+        image = payload["image"]
+        index = payload["index"]
+        text = str(payload["ocr"].get("text") or "").strip()
+        lines.extend([
+            f"### {pack['image']} {index}",
+            "",
+            f"Source image: `{image.name}`",
+            "",
+            text or pack["no_image_text"],
+            "",
+        ])
+    lines.extend([
+        f"## {pack['combined_ocr']}",
+        "",
+        "\n\n".join(combined_lines).strip() or pack["no_image_text"],
+        "",
+    ])
+    return "\n".join(lines)
+
+
+def _hydrate_instagram_post_metadata(canonical_source: str, creator: str | None = None) -> dict[str, Any]:
+    payload = inspect(canonical_source, provider="instagram", creator=creator)
+    if str(payload.get("provider") or "") != "instagram":
+        raise RuntimeError("Instagram post OCR hydration returned non-Instagram metadata.")
+    return payload
 
 
 
@@ -1434,6 +1649,7 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Path:
     no_audio_stream = False
     try:
         text: str | None = None
+        post_ocr_mode = provider == "instagram" and media_type in {"instagram_post", "instagram_carousel"}
         if provider == "youtube":
             text, caption_language = try_youtube_captions(canonical_source, work, external_id, ytdlp_args)
             if text:
@@ -1443,7 +1659,14 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Path:
                 conn.execute("UPDATE media SET status='transcribing', updated_at=? WHERE id=?", (iso_now(), row["id"]))
                 conn.commit()
 
-        if not text:
+        if post_ocr_mode:
+            text = ""
+            transcription_source = "instagram_post_ocr"
+            transcription_model = None
+            chunk_count = 0
+            chunk_seconds_used = None
+            processed_duration = 0.0
+        elif not text:
             cached = find_cached_audio(work, canonical_source, external_id)
             if cached:
                 media, manifest = cached
@@ -1547,35 +1770,53 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> Path:
 
         item_class = processing_class(media_type, processed_duration, long_threshold_seconds=threshold)
         try:
-            pack = locale_pack()
             final = MARKDOWN / provider / creator / output_bucket(media_type) / f"{artifact_stem}.md"
             final.parent.mkdir(parents=True, exist_ok=True)
-            content = "\n".join([
-                "---",
-                f"platform: {provider}",
-                f"creator: {json.dumps(creator, ensure_ascii=False)}",
-                f"media_id: {json.dumps(external_id)}",
-                f"media_type: {json.dumps(media_type)}",
-                f"processing_class: {json.dumps(item_class)}",
-                f"artifact_stem: {json.dumps(artifact_stem)}",
-                f"source_url: {json.dumps(canonical_source)}",
-                f"published_at: {json.dumps(row['published_at'] or '')}",
-                f"processed_at: {json.dumps(iso_now())}",
-                f"transcription_source: {json.dumps(transcription_source)}",
-                f"caption_language: {json.dumps(caption_language)}",
-                f"transcription_model: {json.dumps(transcription_model)}",
-                f"duration_seconds: {json.dumps(processed_duration)}",
-                f"audio_download_strategy: {json.dumps(audio_download_strategy)}",
-                f"audio_used_auth: {json.dumps(audio_used_auth)}",
-                f"audio_attempts: {json.dumps(audio_attempts, ensure_ascii=False)}",
-                f"chunk_count: {json.dumps(chunk_count)}",
-                f"chunk_seconds: {json.dumps(chunk_seconds_used)}",
-                f"resumed_from_checkpoint: {json.dumps(resumed_from_checkpoint)}",
-                "---", "",
-                f"# {pack['title']}: {row['title'] or external_id}", "",
-                f"## {pack['caption']}", "", row["description"] or "_No description provided._", "",
-                f"## {pack['transcript']}", "", text or "_No speech detected._", "",
-            ])
+            if post_ocr_mode:
+                metadata_for_render = _hydrate_instagram_post_metadata(canonical_source, creator=creator)
+                metadata_for_render.update(
+                    {
+                        "provider": provider,
+                        "external_id": external_id,
+                        "source_url": canonical_source,
+                        "description": str(row["description"] or metadata_for_render.get("description") or ""),
+                    }
+                )
+                content = render_instagram_post_markdown(
+                    metadata=metadata_for_render,
+                    creator=creator,
+                    external_id=external_id,
+                    media_type=media_type,
+                    item_class=item_class,
+                    artifact_stem=artifact_stem,
+                    canonical_source=canonical_source,
+                    published_at=str(row["published_at"] or ""),
+                    work=work,
+                )
+            else:
+                content = render_standard_markdown(
+                    provider=provider,
+                    creator=creator,
+                    external_id=external_id,
+                    media_type=media_type,
+                    item_class=item_class,
+                    artifact_stem=artifact_stem,
+                    canonical_source=canonical_source,
+                    published_at=str(row["published_at"] or ""),
+                    transcription_source=transcription_source,
+                    caption_language=caption_language,
+                    transcription_model=transcription_model,
+                    processed_duration=processed_duration,
+                    audio_download_strategy=audio_download_strategy,
+                    audio_used_auth=audio_used_auth,
+                    audio_attempts=audio_attempts,
+                    chunk_count=chunk_count,
+                    chunk_seconds_used=chunk_seconds_used,
+                    resumed_from_checkpoint=resumed_from_checkpoint,
+                    title=str(row["title"] or external_id),
+                    description=str(row["description"] or ""),
+                    text=str(text or ""),
+                )
             tmp = final.with_suffix(".md.tmp")
             tmp.write_text(content, encoding="utf-8")
             if tmp.stat().st_size < 100:
