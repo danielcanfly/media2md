@@ -194,6 +194,9 @@ def test_render_creator_status_ndjson_includes_youtube_catalog_metadata():
         youtube_catalog_surfaces=lambda: ("videos", "shorts"),
     )
     assert result == 0
+    assert emitted[0]["schema"] == "media2md.cli.creator_status/v1"
     assert emitted[0]["catalog_surface"] == "shorts"
     assert emitted[0]["catalog_surfaces"] == ["videos", "shorts"]
     assert emitted[0]["source_url"] == "https://www.youtube.com/@creator-name/shorts"
+    assert emitted[1]["event"] == "creator_status_completed"
+    assert emitted[1]["schema"] == "media2md.cli.creator_status_completed/v1"

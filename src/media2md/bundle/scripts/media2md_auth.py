@@ -4,7 +4,7 @@ import argparse, http.cookiejar, json, os, sys, urllib.error, urllib.parse, urll
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from media2md.cli_output_service import make_output_model, make_section
+from media2md.cli_output_service import make_event_payload, make_output_model, make_section
 from media2md.health_taxonomy import health_category
 from media2md.remediation_service import auth_verify_command, provider_profile_guidance
 from media2md_youtube_session import profile_inventory, validate_profile, verify_youtube_session, load_auth_profiles, save_auth_profiles
@@ -37,6 +37,15 @@ def emit_human(title,payload):
  for k,v in payload.items():
   if k!='event': print(f"{k}={json.dumps(v,ensure_ascii=False) if isinstance(v,(dict,list)) else v}")
 
+def emit_ndjson(payload):
+ print(json.dumps({'schema_version':12,'timestamp':iso_now(),**payload},ensure_ascii=False,sort_keys=True))
+
+def ensure_schema(payload, *, event, schema):
+ enriched={**payload}
+ enriched.setdefault('event',event)
+ enriched.setdefault('schema',schema)
+ return enriched
+
 def login(provider,browser,non_interactive,output):
  if provider=='youtube': raise RuntimeError("Use auth profiles/connect for YouTube; Media2MD never opens a Google login window.")
  if not non_interactive:
@@ -49,7 +58,8 @@ def login(provider,browser,non_interactive,output):
 def list_profiles(provider,browser,output):
  rows=profile_inventory(browser)
  if output=='ndjson':
-  for row in rows: print(json.dumps({'schema_version':12,'timestamp':iso_now(),'event':'auth_browser_profile','provider':provider,'browser':browser,**row},sort_keys=True))
+  for row in rows:
+   emit_ndjson(make_event_payload(event='auth_browser_profile',schema='media2md.cli.auth_browser_profile/v1',data={'provider':provider,'browser':browser,**row}))
  else:
   print('BROWSER_PROFILES'); print('PROVIDER   PROFILE      DISPLAY NAME                     COOKIE DB  PATH')
   for r in rows: print(f"{provider:<10} {r['profile']:<12} {r['display_name'][:32]:<32} {str(r['cookie_db_exists']).lower():<10} {r['path']}")
@@ -67,8 +77,8 @@ def connect(provider,browser,profile,output):
   except Exception as exc:
    item['last_refresh_error']=str(exc)[:1000]; data=load(); data['providers'][provider]=item; save(data)
  if old and old!=item.get('cookie_file'): Path(str(old)).unlink(missing_ok=True)
- payload={'event':'auth_connected','provider':provider,'mode':'browser_profile','browser':browser,'profile':profile,'profile_display_name':row['display_name'],'profile_path':row['path'],'browser_launch_allowed':False,'live_cookie_refresh':True}
- if output=='ndjson': print(json.dumps({'schema_version':12,'timestamp':iso_now(),**payload},sort_keys=True))
+ payload=make_event_payload(event='auth_connected',schema='media2md.cli.auth_connected/v1',data={'provider':provider,'mode':'browser_profile','browser':browser,'profile':profile,'profile_display_name':row['display_name'],'profile_path':row['path'],'browser_launch_allowed':False,'live_cookie_refresh':True})
+ if output=='ndjson': emit_ndjson(payload)
  else: emit_human('AUTH_CONNECTED',payload); print(f'next_command=media2md auth verify {provider}')
  return 0
 
@@ -105,7 +115,7 @@ def _probe(provider,jar):
 
 def verify_web(provider,persist=True):
  data=load(); p=data['providers'].get(provider,{})
- payload={'event':'auth_verify','provider':provider,'browser_launch_allowed':False,'browser':p.get('browser'),'profile':p.get('profile'),'profile_configured':bool(p.get('mode')=='browser_profile' and p.get('browser') and p.get('profile')),'cookie_extraction_ready':False,'authenticated':False,'auth_state':'unconfigured','required_action':None,'guidance':[],'error':None}
+ payload=make_event_payload(event='auth_verify',schema='media2md.cli.auth_verify/v1',data={'provider':provider,'browser_launch_allowed':False,'browser':p.get('browser'),'profile':p.get('profile'),'profile_configured':bool(p.get('mode')=='browser_profile' and p.get('browser') and p.get('profile')),'cookie_extraction_ready':False,'authenticated':False,'auth_state':'unconfigured','required_action':None,'guidance':[],'error':None})
  if not p:
   payload['required_action']=f'connect_{provider}_browser_profile'; return payload
  try:
@@ -139,17 +149,18 @@ def verify_web(provider,persist=True):
 
 def verify(provider,video_id,output):
  payload=verify_youtube_session(video_id,persist=True) if provider=='youtube' else verify_web(provider,True)
- if output=='ndjson': print(json.dumps({'schema_version':12,'timestamp':iso_now(),**payload},ensure_ascii=False,sort_keys=True))
+ payload=ensure_schema(payload,event=payload.get('event') or 'auth_verify',schema='media2md.cli.auth_verify/v1')
+ if output=='ndjson': emit_ndjson(payload)
  else: emit_human(f'{provider.upper()}_AUTH_VERIFY',payload)
  return 0 if payload.get('authenticated') else 2
 
 def refresh(provider,quiet,output):
- if provider=='youtube': payload={'event':'auth_refresh','provider':'youtube','refreshed':True,'mode':'live_browser_read_on_demand'}
+ if provider=='youtube': payload=make_event_payload(event='auth_refresh',schema='media2md.cli.auth_refresh/v1',data={'provider':'youtube','refreshed':True,'mode':'live_browser_read_on_demand'})
  else:
-  try: payload={'event':'auth_refresh','provider':provider,**refresh_if_configured(provider)}
-  except Exception as exc: payload={'event':'auth_refresh','provider':provider,'refreshed':False,'error':str(exc),'required_action':f'reauthenticate_{provider}_in_selected_profile'}
+  try: payload=make_event_payload(event='auth_refresh',schema='media2md.cli.auth_refresh/v1',data={'provider':provider,**refresh_if_configured(provider)})
+  except Exception as exc: payload=make_event_payload(event='auth_refresh',schema='media2md.cli.auth_refresh/v1',data={'provider':provider,'refreshed':False,'error':str(exc),'required_action':f'reauthenticate_{provider}_in_selected_profile'})
  if not quiet:
-  if output=='ndjson': print(json.dumps({'schema_version':12,'timestamp':iso_now(),**payload},sort_keys=True))
+  if output=='ndjson': emit_ndjson(payload)
   else: emit_human('AUTH_REFRESH',payload)
  return 0 if payload.get('refreshed') else 2
 
@@ -178,7 +189,7 @@ def status(output):
   data={"providers": rows},
  ).as_dict()
  if output=='ndjson':
-  print(json.dumps({'schema_version':12,'timestamp':iso_now(),**payload},sort_keys=True))
+  emit_ndjson(payload)
  else:
   print("AUTH_STATUS")
   print("tip=Run `media2md auth verify <provider>` after logging in to refresh the saved auth state.")

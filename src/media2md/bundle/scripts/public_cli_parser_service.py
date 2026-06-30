@@ -5,10 +5,21 @@ import sys
 from pathlib import Path
 from typing import Callable
 
-from media2md.provider_catalog import provider_names
+from media2md.provider_catalog import provider_command_matrix, provider_names
 
 
 PROVIDER_CHOICES = provider_names()
+
+
+def _providers_for_command(command: str, *, capability: str) -> str:
+    matrix = provider_command_matrix()
+    supported = sorted(name for name, commands in matrix.items() if command in commands.get(capability, []))
+    return ", ".join(supported) if supported else "none"
+
+
+def _provider_help_for_command(command: str, *, capability: str = "write") -> str:
+    supported = _providers_for_command(command, capability=capability)
+    return f"Provider for bare handles such as @creator-name. Supported for `{command}`: {supported}."
 
 
 def add_common_top_level_commands(
@@ -171,9 +182,9 @@ def add_common_uninstall_command(subparsers, *, uninstall) -> None:
 def _add_creator_policy_arguments(parser, *, parse_duration, include_typed_batch_sizes: bool, default_provider: str | None) -> None:
     parser.add_argument("creator")
     if default_provider is None:
-        parser.add_argument("--provider", choices=PROVIDER_CHOICES, help="Provider for bare handles such as @creator-name.")
+        parser.add_argument("--provider", choices=PROVIDER_CHOICES, help=_provider_help_for_command("creator policy show", capability="read"))
     else:
-        parser.add_argument("--provider", choices=PROVIDER_CHOICES, default=default_provider, help="Provider for bare handles such as @creator-name.")
+        parser.add_argument("--provider", choices=PROVIDER_CHOICES, default=default_provider, help=_provider_help_for_command("creator policy show", capability="read"))
     parser.add_argument("--every", type=parse_duration)
     parser.add_argument("--full-every", type=parse_duration)
     parser.add_argument("--quick-window", type=int)
@@ -197,7 +208,7 @@ def _add_creator_policy_arguments(parser, *, parse_duration, include_typed_batch
 
 def _add_creator_run_arguments(parser, *, include_typed_batch_sizes: bool, include_retry_failed: bool) -> None:
     parser.add_argument("creator")
-    parser.add_argument("--provider", choices=PROVIDER_CHOICES, help="Provider for bare handles such as @creator-name.")
+    parser.add_argument("--provider", choices=PROVIDER_CHOICES, help=_provider_help_for_command("creator run"))
     parser.add_argument("--mode", choices=("batch", "drain"))
     parser.add_argument("--batch-size", type=int)
     if include_typed_batch_sizes:
@@ -244,9 +255,9 @@ def add_common_creator_commands(
     add = cs.add_parser("add", help=add_help, description=add_help)
     add.add_argument("creator")
     if default_provider_for_bare_handles is None:
-        add.add_argument("--provider", choices=PROVIDER_CHOICES, help="Provider for bare handles such as @creator-name.")
+        add.add_argument("--provider", choices=PROVIDER_CHOICES, help=_provider_help_for_command("creator add"))
     else:
-        add.add_argument("--provider", choices=PROVIDER_CHOICES, default=default_provider_for_bare_handles, help="Provider for bare handles such as @creator-name.")
+        add.add_argument("--provider", choices=PROVIDER_CHOICES, default=default_provider_for_bare_handles, help=_provider_help_for_command("creator add"))
     if strict_provider_resolution and resolve_creator_provider is not None:
         add.set_defaults(func=lambda a: (setattr(a, "provider", resolve_creator_provider(a.creator, a.provider, command_name="creator add")) or add_creator(a)))
     else:
@@ -271,9 +282,9 @@ def add_common_creator_commands(
         command = cs.add_parser(name, help=command_help, description=command_help)
         command.add_argument("creator")
         if default_provider_for_bare_handles is None:
-            command.add_argument("--provider", choices=PROVIDER_CHOICES, help="Provider for bare handles such as @creator-name.")
+            command.add_argument("--provider", choices=PROVIDER_CHOICES, help=_provider_help_for_command("creator run"))
         else:
-            command.add_argument("--provider", choices=PROVIDER_CHOICES, default=default_provider_for_bare_handles, help="Provider for bare handles such as @creator-name.")
+            command.add_argument("--provider", choices=PROVIDER_CHOICES, default=default_provider_for_bare_handles, help=_provider_help_for_command("creator run"))
         command.add_argument("--every", type=parse_duration)
         command.add_argument("--full-every", type=parse_duration)
         command.add_argument("--quick-window", type=int)
@@ -285,7 +296,7 @@ def add_common_creator_commands(
     sync_help = "Refresh the saved creator catalog. Kept for compatibility; prefer `refresh-catalog`."
     sync = cs.add_parser("sync", help=sync_help, description=sync_help)
     sync.add_argument("creator")
-    sync.add_argument("--provider", choices=PROVIDER_CHOICES, help="Provider for bare handles such as @creator-name.")
+    sync.add_argument("--provider", choices=PROVIDER_CHOICES, help=_provider_help_for_command("creator refresh-catalog"))
     sync.add_argument("--force-full", action="store_true")
     sync.set_defaults(func=creator_sync)
 
@@ -293,7 +304,7 @@ def add_common_creator_commands(
         refresh_help = "Refresh the saved creator catalog before reviewing status or running items. For YouTube, this refreshes every configured surface."
         refresh = cs.add_parser("refresh-catalog", help=refresh_help, description=refresh_help)
         refresh.add_argument("creator")
-        refresh.add_argument("--provider", choices=PROVIDER_CHOICES, help="Provider for bare handles such as @creator-name.")
+        refresh.add_argument("--provider", choices=PROVIDER_CHOICES, help=_provider_help_for_command("creator refresh-catalog"))
         refresh.add_argument("--force-full", action="store_true")
         refresh.set_defaults(func=creator_sync)
 
@@ -313,7 +324,7 @@ def add_common_creator_commands(
     pshow_help = "Show the effective policy for one creator."
     pshow = cs.add_parser("policy-show", help=pshow_help, description=pshow_help)
     pshow.add_argument("creator")
-    pshow.add_argument("--provider", choices=PROVIDER_CHOICES)
+    pshow.add_argument("--provider", choices=PROVIDER_CHOICES, help=_provider_help_for_command("creator policy show", capability="read"))
     pshow.add_argument("--output", choices=("human", "ndjson"), default="human")
     pshow.set_defaults(func=policy_show)
 
@@ -337,7 +348,7 @@ def add_common_creator_commands(
     pshow2_help = "Show the effective policy for one creator."
     pshow2 = psub.add_parser("show", help=pshow2_help, description=pshow2_help)
     pshow2.add_argument("creator")
-    pshow2.add_argument("--provider", choices=PROVIDER_CHOICES)
+    pshow2.add_argument("--provider", choices=PROVIDER_CHOICES, help=_provider_help_for_command("creator policy show", capability="read"))
     pshow2.add_argument("--output", choices=("human", "ndjson"), default="human")
     pshow2.set_defaults(func=policy_show)
 

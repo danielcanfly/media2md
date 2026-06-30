@@ -6,6 +6,7 @@ from pathlib import Path
 
 from media2md.bundle.scripts.public_cli_tail_service import (
     build_scheduler_creator_run_namespace,
+    scheduler_tick_common,
     uninstall_common,
     update_check_common,
 )
@@ -93,4 +94,31 @@ def test_update_check_common_ndjson_uses_emit(monkeypatch):
     assert emitted
     payload, output = emitted[0]
     assert output == "ndjson"
+    assert payload["schema"] == "media2md.cli.update_check/v1"
     assert payload["update_available"] is True
+
+
+def test_scheduler_tick_common_ndjson_uses_shared_schema():
+    emitted = []
+    args = argparse.Namespace(output="ndjson")
+    result = scheduler_tick_common(
+        args,
+        load_policies=lambda: {"creators": {}},
+        load_json=lambda path, default: {"creators": {}},
+        atomic_json=lambda path, payload: None,
+        scheduler_state_path=Path("/tmp/scheduler-state.json"),
+        refresh_auth=lambda provider: None,
+        core=lambda argv: 0,
+        effective_policy=lambda provider, creator: {"sync": {"enabled": False, "every_minutes": 60, "full_every_minutes": 1440}, "processing": {"scheduled": False}},
+        registry=lambda argv: 0,
+        creator_run_builder=lambda provider, creator, processing, output: argparse.Namespace(),
+        creator_run=lambda ns: 0,
+        iso_now=lambda: "2026-06-30T00:00:00+00:00",
+        emit=lambda payload, output: emitted.append((payload, output)),
+    )
+    assert result == 0
+    assert emitted
+    payload, output = emitted[0]
+    assert output == "ndjson"
+    assert payload["event"] == "media2md_scheduler_completed"
+    assert payload["schema"] == "media2md.cli.scheduler_completed/v1"

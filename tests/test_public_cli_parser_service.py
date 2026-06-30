@@ -128,6 +128,9 @@ def test_add_common_creator_commands_media2md_shape():
     assert "source, policy, and remaining work" in status_help
     refresh_help = _find_subparser(creator, "refresh-catalog").format_help().lower()
     assert "provider for bare handles" in refresh_help
+    assert "supported for `creator refresh-catalog`" in refresh_help
+    assert "instagram," in refresh_help
+    assert "tiktok, youtube" in refresh_help
     assert "every configured surface" in refresh_help
 
 
@@ -181,3 +184,6 @@ def test_creator_run_help_mentions_cached_catalog_wording():
     run_help = _find_subparser(creator, "run").format_help().lower()
     assert "current policy" in creator_help
     assert "cached results" in run_help
+    assert "supported for `creator run`" in run_help
+    for provider in ("instagram", "tiktok", "youtube"):
+        assert provider in run_help

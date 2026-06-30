@@ -11,6 +11,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
+from media2md.cli_output_service import make_event_payload
 from media2md.remediation_service import uninstall_dry_run_next_step
 
 
@@ -98,7 +99,14 @@ def scheduler_tick_common(
             else:
                 failures += 1
         atomic_json(scheduler_state_path, state)
-    emit({"event": "media2md_scheduler_completed", "jobs_run": jobs, "failures": failures}, args.output)
+    emit(
+        make_event_payload(
+            event="media2md_scheduler_completed",
+            schema="media2md.cli.scheduler_completed/v1",
+            data={"jobs_run": jobs, "failures": failures},
+        ),
+        args.output,
+    )
     if args.output == "human":
         print(f"MEDIA2MD_SCHEDULER_COMPLETED jobs_run={jobs} failures={failures}")
     return 0 if failures == 0 else 2
@@ -122,24 +130,30 @@ def update_check_common(
         latest = str(release.get("tag_name") or "")
         parts = lambda value: tuple(int(item) for item in __import__("re").findall(r"\d+", value)[:3])
         available = parts(latest) > parts(version)
-        payload = {
-            "event": "update_check",
-            "repository": repo,
-            "current_version": version,
-            "latest_version": latest,
-            "update_available": available,
-            "release_url": release.get("html_url"),
-        }
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            payload = {
-                "event": "update_check",
+        payload = make_event_payload(
+            event="update_check",
+            schema="media2md.cli.update_check/v1",
+            data={
                 "repository": repo,
                 "current_version": version,
-                "latest_version": None,
-                "update_available": False,
-                "status": "no_release_published",
-            }
+                "latest_version": latest,
+                "update_available": available,
+                "release_url": release.get("html_url"),
+            },
+        )
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            payload = make_event_payload(
+                event="update_check",
+                schema="media2md.cli.update_check/v1",
+                data={
+                    "repository": repo,
+                    "current_version": version,
+                    "latest_version": None,
+                    "update_available": False,
+                    "status": "no_release_published",
+                },
+            )
         else:
             raise RuntimeError(f"GitHub update check failed: HTTP {exc.code}")
     if args.output == "ndjson":

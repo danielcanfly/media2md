@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urlsplit
 
-from media2md.cli_output_service import make_output_model, make_section
+from media2md.cli_output_service import make_event_payload, make_output_model, make_section
 from media2md.health_taxonomy import health_category, summarize_health
 from media2md.provider_catalog import provider_command_matrix
 from media2md.provider_registry import provider_adapter
@@ -81,15 +81,25 @@ def render_creator_status(
         for row in rows:
             policy = effective_policy(row["provider"], row["handle"])
             emit(
-                {
-                    "event": "creator_status",
-                    **row,
-                    **creator_catalog_metadata(row, youtube_catalog_surfaces=youtube_catalog_surfaces),
-                    "policy": policy,
-                },
+                make_event_payload(
+                    event="creator_status",
+                    schema="media2md.cli.creator_status/v1",
+                    data={
+                        **row,
+                        **creator_catalog_metadata(row, youtube_catalog_surfaces=youtube_catalog_surfaces),
+                        "policy": policy,
+                    },
+                ),
                 args.output,
             )
-        emit({"event": "creator_status_completed", "count": len(rows)}, args.output)
+        emit(
+            make_event_payload(
+                event="creator_status_completed",
+                schema="media2md.cli.creator_status_completed/v1",
+                data={"count": len(rows)},
+            ),
+            args.output,
+        )
         return 0
     if include_youtube_breakdown:
         print("PLATFORM   CREATOR                    SYNC  EVERY  FULL  MODE   TRACKED  DONE  LEFT  TOTALS")

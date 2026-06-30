@@ -128,6 +128,7 @@ def test_first_user_auth_connect_ndjson_emits_single_payload(monkeypatch, capsys
     assert result == 0
     assert len(out) == 1
     assert '"event": "auth_connected"' in out[0]
+    assert '"schema": "media2md.cli.auth_connected/v1"' in out[0]
     assert '"provider": "tiktok"' in out[0]
 
 
@@ -170,6 +171,7 @@ def test_first_user_auth_verify_ndjson_emits_authenticated_payload(monkeypatch, 
     out = capsys.readouterr().out.strip().splitlines()
     assert result == 0
     assert len(out) == 1
+    assert '"schema": "media2md.cli.auth_verify/v1"' in out[0]
     assert '"provider": "youtube"' in out[0]
     assert '"authenticated": true' in out[0]
 
