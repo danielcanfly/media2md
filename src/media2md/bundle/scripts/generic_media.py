@@ -30,6 +30,7 @@ from media2md_types import infer_media_type, output_bucket, processing_class
 
 from media2md_auth_shared import refresh_if_configured
 from media2md.remediation_service import auth_verify_command, provider_access_guidance
+from media2md.required_actions import validate_required_action
 
 ROOT = Path(__file__).resolve().parents[1]
 DB = ROOT / "data" / "social2md_media.db"
@@ -54,7 +55,7 @@ class StageError(RuntimeError):
         self.retryable = retryable
         self.error_code = error_code
         self.action_required = action_required
-        self.required_action = required_action
+        self.required_action = validate_required_action(required_action)
         self.root_cause = root_cause or message
         self.log_path = log_path
         markers = [f"[stage={stage}]", f"[error_code={error_code}]", f"[retryable={str(retryable).lower()}]",

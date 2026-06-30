@@ -14,6 +14,7 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from media2md.cli_result_types import cli_result
 
 from creator_run_shared import prepare_catalog_for_creator_run
 from media2md_urls import detect_provider as detect_provider_url, normalize_creator as normalize_creator_target
@@ -878,9 +879,15 @@ def maybe_check_update(args: argparse.Namespace) -> None:
     except json.JSONDecodeError: return
     if not payload.get("update_available"): return
     output=getattr(args,"output","human")
-    update_event={"event":"update_available","current_version":payload.get("current_version"),"latest_version":payload.get("latest_version"),
-                  "release_url":payload.get("release_url"),"release_notes":payload.get("release_notes"),
-                  "user_confirmation_required":True,"auto_install":False}
+    update_event=cli_result(
+        event="update_available",
+        section="update",
+        status="warn",
+        message="A newer Media2MD release is available",
+        data={"current_version":payload.get("current_version"),"latest_version":payload.get("latest_version"),
+              "release_url":payload.get("release_url"),"release_notes":payload.get("release_notes"),
+              "user_confirmation_required":True,"auto_install":False},
+    )
     if output=="ndjson":
         emit(update_event,"ndjson")
         return

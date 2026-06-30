@@ -308,58 +308,60 @@ def classify_transcription_exception(exc: Exception) -> dict[str, Any]:
         "expected one argument", "unrecognized argument", "unrecognized option",
         "invalid choice", "usage:", "unknown option",
     )):
-        return {
-            "error_code": "invalid_transcription_argument",
-            "retryable": False,
-            "action_required": True,
-            "required_action": "upgrade_media2md_or_report_internal_bug",
-            "root_cause": str(root),
-            "log_path": log_path,
-        }
+        return RequiredActionResult(
+            error_code="invalid_transcription_argument",
+            retryable=False,
+            action_required=True,
+            required_action=validate_required_action("upgrade_media2md_or_report_internal_bug"),
+            root_cause=str(root),
+            log_path=log_path,
+        ).as_dict()
     if any(token in lower for token in ("command not found", "no such file or directory", "mlx_whisper command was not found")):
-        return {
-            "error_code": "missing_transcription_dependency",
-            "retryable": False,
-            "action_required": True,
-            "required_action": "install_mlx_whisper",
-            "root_cause": str(root),
-            "log_path": log_path,
-        }
+        return RequiredActionResult(
+            error_code="missing_transcription_dependency",
+            retryable=False,
+            action_required=True,
+            required_action=validate_required_action("install_mlx_whisper"),
+            root_cause=str(root),
+            log_path=log_path,
+        ).as_dict()
     if any(token in lower for token in ("out of memory", "memoryerror", "metal", "failed to allocate")):
-        return {
-            "error_code": "transcription_resource_exhausted",
-            "retryable": False,
-            "action_required": True,
-            "required_action": "use_smaller_model_or_shorter_chunks",
-            "root_cause": str(root),
-            "log_path": log_path,
-        }
+        return RequiredActionResult(
+            error_code="transcription_resource_exhausted",
+            retryable=False,
+            action_required=True,
+            required_action=validate_required_action("use_smaller_model_or_shorter_chunks"),
+            root_cause=str(root),
+            log_path=log_path,
+        ).as_dict()
     if any(token in lower for token in (
         "timed out", "timeout", "connection reset", "temporarily unavailable",
         "name resolution", "network is unreachable", "http error 429", "http error 5",
     )):
-        return {
-            "error_code": "transcription_transient_error",
-            "retryable": True,
-            "action_required": False,
-            "required_action": None,
-            "root_cause": str(root),
-            "log_path": log_path,
-        }
+        return RequiredActionResult(
+            error_code="transcription_transient_error",
+            retryable=True,
+            action_required=False,
+            required_action=None,
+            root_cause=str(root),
+            log_path=log_path,
+        ).as_dict()
     if "expected transcript" in lower or "did not create" in lower:
-        return {
-            "error_code": "transcription_output_missing",
-            "retryable": False,
-            "action_required": True,
-            "required_action": "inspect_transcription_log",
-            "root_cause": str(root),
-            "log_path": log_path,
-        }
-    return {
-        "error_code": "transcription_process_error",
-        "retryable": False,
-        "action_required": True,
-        "required_action": "inspect_transcription_log",
-        "root_cause": str(root),
-        "log_path": log_path,
-    }
+        return RequiredActionResult(
+            error_code="transcription_output_missing",
+            retryable=False,
+            action_required=True,
+            required_action=validate_required_action("inspect_transcription_log"),
+            root_cause=str(root),
+            log_path=log_path,
+        ).as_dict()
+    return RequiredActionResult(
+        error_code="transcription_process_error",
+        retryable=False,
+        action_required=True,
+        required_action=validate_required_action("inspect_transcription_log"),
+        root_cause=str(root),
+        log_path=log_path,
+    ).as_dict()
+from media2md.required_actions import validate_required_action
+from media2md.results import RequiredActionResult

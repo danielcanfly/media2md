@@ -338,18 +338,18 @@ def classify_access_error(provider: str, text: str) -> dict[str, Any]:
         "openssl_internal", "ssl connect error", "connection closed during tls",
     ))
     if transient:
-        return {"error_code": "transient_network_error", "retryable": True, "action_required": False, "required_action": None}
+        return RequiredActionResult("transient_network_error", True, False, None).as_dict()
     if provider == "tiktok" and ("no impersonate target" in lower or "impersonation" in lower and "available" in lower):
-        return {"error_code": "impersonation_unavailable", "retryable": False, "action_required": True, "required_action": "install_impersonation"}
+        return RequiredActionResult("impersonation_unavailable", False, True, validate_required_action("install_impersonation")).as_dict()
     if "403" in lower or "forbidden" in lower:
         if provider == "youtube":
-            return {"error_code": "youtube_po_token_required", "retryable": False, "action_required": True, "required_action": "verify_youtube_session_or_configure_non_browser_access"}
+            return RequiredActionResult("youtube_po_token_required", False, True, validate_required_action("verify_youtube_session_or_configure_non_browser_access")).as_dict()
         if provider == "tiktok":
             inventory = impersonation_targets()
             action = "refresh_tiktok_cookies" if inventory.get("ready") else "install_impersonation"
             code = "platform_access_denied" if inventory.get("ready") else "impersonation_unavailable"
-            return {"error_code": code, "retryable": False, "action_required": True, "required_action": action}
-    return {"error_code": "extractor_error", "retryable": True, "action_required": False, "required_action": None}
+            return RequiredActionResult(code, False, True, validate_required_action(action)).as_dict()
+    return RequiredActionResult("extractor_error", True, False, None).as_dict()
 
 
 def doctor_payload() -> dict[str, Any]:
@@ -373,3 +373,5 @@ def doctor_payload() -> dict[str, Any]:
         "ejs_version": ejs, "runtime_inventory": inventory, "selected_runtime": selected,
         "runtime_args": youtube_runtime_args(config), "pot_providers": po_token_providers(), "browser_safety": browser_safety_payload(config), "remediation": remediation,
     }
+from media2md.required_actions import validate_required_action
+from media2md.results import RequiredActionResult
