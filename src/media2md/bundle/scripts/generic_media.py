@@ -797,6 +797,21 @@ def _instagram_metadata_access_hint(error: str) -> str:
     return error
 
 
+def _bilibili_access_hint(error: str) -> str:
+    lower = error.lower()
+    if any(token in lower for token in ("missing_dependency", "not installed", "bilibili support is not installed")):
+        guidance = provider_access_guidance("bilibili", error_code="missing_dependency", required_action="install_provider_extra")
+        doctor_command = "media2md doctor bilibili-access --video-id=<BV_VIDEO_ID>"
+        install_guidance = guidance[0] if guidance else 'Run: python -m pip install -U "media2md[bilibili]"'
+        return error + f"\nRun '{doctor_command}' and ensure Bilibili support is installed. {install_guidance}"
+    if any(token in lower for token in ("sessdata", "credential", "audio stream", "subtitle", "playable pages", "valid cid")):
+        guidance = provider_access_guidance("bilibili", required_action="repair_provider_identities")
+        doctor_command = "media2md doctor bilibili-access --video-id=<BV_VIDEO_ID>"
+        extra = guidance[0] if guidance else "Run: media2md repair identities"
+        return error + f"\nRun '{doctor_command}' to verify the Bilibili pipeline. {extra}"
+    return error
+
+
 def _is_tiktok_opaque_identifier(value: str | None) -> bool:
     text = str(value or "").strip().lstrip("@")
     return bool(text) and (text.isdigit() or text.startswith("MS4wLjAB") or len(text) > 40)
@@ -904,7 +919,10 @@ def inspect(value: str, provider: str | None = None, creator: str | None = None)
             raise RuntimeError("TikTok metadata inspection requires a human-readable creator handle.")
         data = inspect_tiktok_metadata(url, tiktok_creator, str(target.media_id or ""))
     elif provider == "bilibili":
-        data = inspect_bilibili_metadata(url, str(target.media_id or ""))
+        try:
+            data = inspect_bilibili_metadata(url, str(target.media_id or ""))
+        except Exception as exc:
+            raise RuntimeError(_bilibili_access_hint(str(exc))) from exc
     else:
         ytdlp_args = youtube_runtime_args()
         public_cmd = [command("yt-dlp"), *ytdlp_args, "--dump-single-json", "--skip-download", "--no-playlist", url]
@@ -2109,9 +2127,12 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
                 )
             elif provider == "bilibili":
                 caption_probe_result = "fallback_to_audio"
-                media, audio_download_strategy, audio_used_auth, audio_attempts = download_bilibili_audio(
-                    canonical_source, work, external_id
-                )
+                try:
+                    media, audio_download_strategy, audio_used_auth, audio_attempts = download_bilibili_audio(
+                        canonical_source, work, external_id
+                    )
+                except Exception as exc:
+                    raise RuntimeError(_bilibili_access_hint(str(exc))) from exc
             else:
                 try:
                     if provider == "tiktok":

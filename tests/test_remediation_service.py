@@ -9,6 +9,7 @@ from media2md.remediation_service import (
     provider_access_guidance,
     provider_command_guidance,
     provider_profile_guidance,
+    repair_identities_command,
     settings_show_command,
     uninstall_dry_run_next_step,
     update_check_command,
@@ -79,3 +80,17 @@ def test_provider_access_guidance_covers_dependency_and_doctor_paths():
 
 def test_bilibili_doctor_access_command_uses_bv_placeholder():
     assert doctor_access_command("bilibili") == "media2md doctor bilibili-access --video-id=<BV_VIDEO_ID>"
+
+
+def test_repair_identities_command_exposes_public_cli_forms():
+    assert repair_identities_command() == "media2md repair identities"
+    assert repair_identities_command(offline=True) == "media2md repair identities --offline"
+
+
+def test_provider_access_guidance_covers_bilibili_install_and_repair_paths():
+    install = provider_access_guidance("bilibili", error_code="missing_dependency", required_action="install_provider_extra")
+    assert 'Run: python -m pip install -U "media2md[bilibili]"' in install
+    assert "Run: media2md doctor bilibili-access --video-id=<BV_VIDEO_ID>" in install
+    repair = provider_access_guidance("bilibili", required_action="repair_provider_identities")
+    assert "Run: media2md repair identities" in repair
+    assert "Run: media2md status" in repair

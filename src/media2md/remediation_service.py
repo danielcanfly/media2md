@@ -58,6 +58,10 @@ def doctor_access_command(provider: str) -> str:
     return f"media2md doctor {provider}-access{(' ' + suffix) if suffix else ''}".strip()
 
 
+def repair_identities_command(*, offline: bool = False) -> str:
+    return "media2md repair identities --offline" if offline else "media2md repair identities"
+
+
 def uninstall_command() -> str:
     return "media2md uninstall"
 
@@ -182,6 +186,8 @@ def provider_access_guidance(
         lines.append(media2md_install_guidance("tiktok", "youtube"))
     elif required_action == "install_provider_extra":
         lines.append(media2md_install_guidance(provider))
+        if provider == "bilibili":
+            lines.append(f"Run: {doctor_access_command('bilibili')}")
     elif required_action == "verify_or_reauthenticate_instagram_session":
         lines.append(auth_verify_guidance("instagram"))
     elif required_action == "configure_non_browser_po_token_or_try_another_video":
@@ -195,4 +201,11 @@ def provider_access_guidance(
         lines.append("Inspect the command log referenced by the failure output, then retry.")
     elif required_action in {"verify_or_reauthenticate_youtube_session", "verify_youtube_session_or_configure_non_browser_access"}:
         lines.extend(youtube_profile_guidance(action="doctor"))
+    elif required_action == "repair_provider_identities":
+        lines.extend(
+            [
+                f"Run: {repair_identities_command()}",
+                f"Run: {status_command()}",
+            ]
+        )
     return guidance_lines(lines)
