@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
+import sqlite3
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -107,3 +108,49 @@ def test_bilibili_legacy_like_single_media_refresh_does_not_downgrade_space_iden
     assert row["handle"] == "1510588366"
     assert row["display_name"] == "史丹福机器人庞博士"
     assert row["source_url"] == "https://space.bilibili.com/1510588366"
+
+
+def test_bilibili_repair_identities_is_noop_for_already_canonical_creator(tmp_path, monkeypatch):
+    registry = _load_registry()
+    monkeypatch.setattr(registry, "DB", tmp_path / "media2md.db")
+    monkeypatch.setattr(registry, "CHECKPOINT_DIR", tmp_path / "checkpoints")
+    monkeypatch.setattr(registry, "CONFIG", tmp_path / "config.json")
+    (tmp_path / "config.json").write_text("{}", encoding="utf-8")
+
+    conn = registry.connect()
+    try:
+        now = "2026-07-01T00:00:00+00:00"
+        canonical = registry.upsert_creator_identity(
+            conn,
+            "bilibili",
+            "1510588366",
+            "1510588366",
+            "史丹福机器人庞博士",
+            "https://space.bilibili.com/1510588366",
+            identifiers={"mid": "1510588366"},
+        )
+        conn.execute(
+            "INSERT INTO media(provider,creator_id,external_id,source_url,status,is_current,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
+            ("bilibili", int(canonical["id"]), "BV1legacy", "https://www.bilibili.com/video/BV1legacy", "completed", 0, now, now),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    result = registry.repair_identities(live=False)
+
+    verify = sqlite3.connect(tmp_path / "media2md.db")
+    verify.row_factory = sqlite3.Row
+    try:
+        creators = verify.execute("SELECT id, external_id, handle, source_url FROM creators WHERE provider='bilibili'").fetchall()
+        media_row = verify.execute("SELECT creator_id FROM media WHERE provider='bilibili' AND external_id='BV1legacy'").fetchone()
+    finally:
+        verify.close()
+
+    assert result["bilibili_identifier_resolved"] == 0
+    assert len(creators) == 1
+    assert int(creators[0]["id"]) == int(canonical["id"])
+    assert creators[0]["external_id"] == "1510588366"
+    assert creators[0]["handle"] == "1510588366"
+    assert creators[0]["source_url"] == "https://space.bilibili.com/1510588366"
+    assert int(media_row["creator_id"]) == int(canonical["id"])

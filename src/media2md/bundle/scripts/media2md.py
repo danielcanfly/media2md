@@ -338,8 +338,12 @@ def registry_rows() -> list[dict[str, Any]]:
         c.youtube_streams_total,c.youtube_streams_total_exact,c.last_sync_mode,c.last_sync_at,c.last_full_sync_at,
         c.last_full_exact_total,c.last_full_exact_at,c.last_full_youtube_video_total,
         c.last_full_youtube_shorts_total,c.last_full_youtube_streams_total,
-        COUNT(m.id) tracked, SUM(CASE WHEN m.status='completed' THEN 1 ELSE 0 END) completed,
-        SUM(CASE WHEN m.is_current=1 AND m.status NOT IN ('completed','skipped') THEN 1 ELSE 0 END) remaining
+        SUM(CASE WHEN m.is_current=1 THEN 1 ELSE 0 END) tracked,
+        SUM(CASE WHEN m.is_current=1 AND m.status='completed' THEN 1 ELSE 0 END) completed,
+        SUM(CASE WHEN m.is_current=1 AND m.status NOT IN ('completed','skipped') THEN 1 ELSE 0 END) remaining,
+        COUNT(m.id) lifetime_tracked,
+        SUM(CASE WHEN m.status='completed' THEN 1 ELSE 0 END) lifetime_completed,
+        SUM(CASE WHEN m.is_current=0 THEN 1 ELSE 0 END) historical_tracked
         FROM creators c LEFT JOIN media m ON m.creator_id=c.id GROUP BY c.id ORDER BY c.provider,lower(c.handle)""").fetchall()
     conn.close(); return [dict(r) for r in rows]
 

@@ -3794,6 +3794,8 @@ def repair_identities(live: bool = True) -> dict[str, Any]:
     identifier_resolved = 0
     legacy_rows_updated = 0
     artifacts_relinked = 0
+    bilibili_live_resolved = 0
+    bilibili_identifier_resolved = 0
     rows = conn.execute("SELECT * FROM creators WHERE provider='tiktok' ORDER BY id").fetchall()
     for row in rows:
         handle = str(row["handle"] or "")
@@ -3889,6 +3891,85 @@ def repair_identities(live: bool = True) -> dict[str, Any]:
             )
         legacy_rows_updated += _legacy_generic_reassign("tiktok", old_handle, resolved_handle)
         merged += 1
+    bilibili_rows = conn.execute("SELECT * FROM creators WHERE provider='bilibili' ORDER BY id").fetchall()
+    for row in bilibili_rows:
+        handle = str(row["handle"] or "")
+        external_id = str(row["external_id"] or "")
+        source_url = str(row["source_url"] or "")
+        if _is_bilibili_mid(handle) or _is_bilibili_mid(external_id):
+            continue
+        identifier_rows = conn.execute(
+            "SELECT identifier_type,identifier_value FROM creator_identifiers WHERE creator_id=?",
+            (int(row["id"]),),
+        ).fetchall()
+        identifiers = {str(item["identifier_type"]): str(item["identifier_value"]) for item in identifier_rows if item["identifier_value"]}
+        shared_mid = identifiers.get("mid") or identifiers.get("channel_id")
+        if shared_mid and _is_bilibili_mid(shared_mid):
+            bilibili_identifier_resolved += 1
+        elif live:
+            media_rows = conn.execute("SELECT * FROM media WHERE creator_id=? ORDER BY id", (int(row["id"]),)).fetchall()
+            sample_external_id = next((str(media["external_id"] or "") for media in media_rows if str(media["external_id"] or "").startswith("BV")), "")
+            if sample_external_id:
+                try:
+                    from generic_media import inspect_bilibili_metadata
+
+                    metadata = inspect_bilibili_metadata(f"https://www.bilibili.com/video/{sample_external_id}", sample_external_id)
+                except Exception:
+                    metadata = {}
+                shared_mid = str(metadata.get("channel_id") or "").strip()
+                if _is_bilibili_mid(shared_mid):
+                    identifiers["channel_id"] = shared_mid
+                    identifiers["mid"] = shared_mid
+                    bilibili_live_resolved += 1
+        if not shared_mid or not _is_bilibili_mid(shared_mid):
+            continue
+        candidate = _creator_by_identity(conn, "bilibili", shared_mid, shared_mid, {"mid": shared_mid, "channel_id": shared_mid})
+        if candidate is None:
+            continue
+        primary_id = int(candidate["id"])
+        duplicate_id = int(row["id"])
+        if primary_id == duplicate_id:
+            canonical_source = f"https://space.bilibili.com/{shared_mid}"
+            conn.execute(
+                "UPDATE creators SET external_id=?,handle=?,source_url=?,updated_at=? WHERE id=?",
+                (shared_mid, shared_mid, canonical_source, iso_now(), primary_id),
+            )
+            now = iso_now()
+            for identifier_type, identifier_value in {"primary": shared_mid, "mid": shared_mid, "channel_id": shared_mid}.items():
+                conn.execute(
+                    """INSERT INTO creator_identifiers(creator_id,provider,identifier_type,identifier_value,first_seen_at,last_seen_at)
+                       VALUES(?,?,?,?,?,?) ON CONFLICT(provider,identifier_type,identifier_value)
+                       DO UPDATE SET creator_id=excluded.creator_id,last_seen_at=excluded.last_seen_at""",
+                    (primary_id, "bilibili", identifier_type, identifier_value, now, now),
+                )
+            continue
+        _merge_creator_rows(conn, primary_id, duplicate_id)
+        canonical_source = f"https://space.bilibili.com/{shared_mid}"
+        primary = conn.execute("SELECT * FROM creators WHERE id=?", (primary_id,)).fetchone()
+        conn.execute(
+            "UPDATE creators SET external_id=?,handle=?,display_name=?,source_url=?,updated_at=? WHERE id=?",
+            (
+                shared_mid,
+                shared_mid,
+                str(primary["display_name"] or row["display_name"] or shared_mid),
+                canonical_source,
+                iso_now(),
+                primary_id,
+            ),
+        )
+        now = iso_now()
+        conn.execute(
+            "INSERT OR IGNORE INTO creator_aliases(creator_id,provider,alias,first_seen_at,last_seen_at) VALUES(?,?,?,?,?)",
+            (primary_id, "bilibili", handle, now, now),
+        )
+        for identifier_type, identifier_value in {"primary": shared_mid, "mid": shared_mid, "channel_id": shared_mid}.items():
+            conn.execute(
+                """INSERT INTO creator_identifiers(creator_id,provider,identifier_type,identifier_value,first_seen_at,last_seen_at)
+                   VALUES(?,?,?,?,?,?) ON CONFLICT(provider,identifier_type,identifier_value)
+                   DO UPDATE SET creator_id=excluded.creator_id,last_seen_at=excluded.last_seen_at""",
+                (primary_id, "bilibili", identifier_type, identifier_value, now, now),
+            )
+        merged += 1
     conn.commit()
     conn.close()
     return {
@@ -3897,6 +3978,8 @@ def repair_identities(live: bool = True) -> dict[str, Any]:
         "heuristic_resolved": heuristic_resolved,
         "markdown_resolved": markdown_resolved,
         "identifier_resolved": identifier_resolved,
+        "bilibili_live_resolved": bilibili_live_resolved,
+        "bilibili_identifier_resolved": bilibili_identifier_resolved,
         "legacy_rows_updated": legacy_rows_updated,
         "artifacts_relinked": artifacts_relinked,
     }

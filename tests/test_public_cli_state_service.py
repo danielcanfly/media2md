@@ -8,6 +8,7 @@ from media2md.bundle.scripts.public_cli_state_service import (
     apply_settings_updates,
     creator_catalog_metadata,
     provider_auth_rows,
+    registry_rows,
     render_creator_status,
     settings_payload,
     system_status_payload,
@@ -263,6 +264,79 @@ def test_render_creator_status_human_includes_instagram_catalog_metadata(capsys)
     assert result == 0
     out = capsys.readouterr().out
     assert "SOURCE surface=posts catalog_surfaces=reels,posts" in out
+
+
+def test_registry_rows_count_current_catalog_progress_separately(tmp_path):
+    registry_db = tmp_path / "media2md.db"
+    conn = __import__("sqlite3").connect(registry_db)
+    try:
+        conn.execute(
+            """CREATE TABLE creators (
+                id INTEGER PRIMARY KEY,
+                provider TEXT NOT NULL,
+                handle TEXT NOT NULL,
+                source_url TEXT,
+                current_total INTEGER,
+                current_total_exact INTEGER,
+                youtube_video_total INTEGER,
+                youtube_video_total_exact INTEGER,
+                youtube_shorts_total INTEGER,
+                youtube_shorts_total_exact INTEGER,
+                youtube_streams_total INTEGER,
+                youtube_streams_total_exact INTEGER,
+                last_sync_mode TEXT,
+                last_sync_at TEXT,
+                last_full_sync_at TEXT,
+                last_full_exact_total INTEGER,
+                last_full_exact_at TEXT,
+                last_full_youtube_video_total INTEGER,
+                last_full_youtube_shorts_total INTEGER,
+                last_full_youtube_streams_total INTEGER
+            )"""
+        )
+        conn.execute(
+            """CREATE TABLE media (
+                id INTEGER PRIMARY KEY,
+                provider TEXT NOT NULL,
+                creator_id INTEGER NOT NULL,
+                external_id TEXT NOT NULL,
+                source_url TEXT NOT NULL,
+                status TEXT NOT NULL,
+                is_current INTEGER NOT NULL
+            )"""
+        )
+        conn.execute(
+            """INSERT INTO creators (
+                id, provider, handle, source_url, current_total, current_total_exact,
+                youtube_video_total, youtube_video_total_exact, youtube_shorts_total, youtube_shorts_total_exact,
+                youtube_streams_total, youtube_streams_total_exact, last_sync_mode, last_sync_at,
+                last_full_sync_at, last_full_exact_total, last_full_exact_at,
+                last_full_youtube_video_total, last_full_youtube_shorts_total, last_full_youtube_streams_total
+            ) VALUES (1, 'bilibili', '1510588366', 'https://space.bilibili.com/1510588366', 2, 1, 0, 0, 0, 0, 0, 0,
+                'full', '2026-07-01T00:00:00+00:00', '2026-07-01T00:00:00+00:00', 2, '2026-07-01T00:00:00+00:00', 0, 0, 0)"""
+        )
+        conn.executemany(
+            "INSERT INTO media (id, provider, creator_id, external_id, source_url, status, is_current) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                (1, "bilibili", 1, "old-video", "https://www.bilibili.com/video/old-video", "completed", 0),
+                (2, "bilibili", 1, "current-video-1", "https://www.bilibili.com/video/current-video-1", "pending", 1),
+                (3, "bilibili", 1, "current-video-2", "https://www.bilibili.com/video/current-video-2", "pending", 1),
+            ],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = registry_rows(registry_db, include_youtube_totals=True)
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["tracked"] == 2
+    assert row["completed"] == 0
+    assert row["remaining"] == 2
+    assert row["lifetime_tracked"] == 3
+    assert row["lifetime_completed"] == 1
+    assert row["historical_tracked"] == 1
 
 
 def test_refresh_legacy_preserves_instagram_catalog_profile_url(tmp_path, monkeypatch):
