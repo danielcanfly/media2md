@@ -1,56 +1,61 @@
 # Media2MD
 
-Media2MD is a local-first CLI for collecting content from Instagram, YouTube, and TikTok, transcribing speech on your own machine, and turning the results into structured Markdown.
+A local-first CLI for turning creator content into Markdown for humans, agents, and knowledge workflows.
 
-It is designed for both direct terminal use and agent-driven workflows that need stable commands, schedulable operations, and machine-readable output. The generated Markdown is meant to be easy to archive, search, summarize, or feed into a wiki or knowledge base.
+Media2MD collects content from Instagram, YouTube, TikTok, and Bilibili, extracts captions, OCR text, or speech transcripts on your own machine, and writes the result as structured Markdown.
 
-Media2MD runs locally, can reuse a browser session you already authenticated on your machine, and keeps runtime state separate from the installed package. It does not enter passwords, bypass 2FA, solve CAPTCHAs, or defeat platform challenges.
+It is built for a different job than a normal downloader: follow creators over time, refresh saved catalogs, process backlogs, and turn platform content into durable local files that can be searched, summarized, archived, or fed into a wiki, RAG pipeline, or agent workflow.
 
-## Highlights
+## Why Media2MD
 
-- One CLI for Instagram, YouTube, and TikTok intake
-- Local runtime and local transcription workflows
-- Instagram support for reels, single-image posts, and carousel posts
-- Markdown output that is easy to archive, search, summarize, or import into a knowledge base
-- Creator tracking, catalog refresh, queue processing, diagnostics, and backup commands in one tool
-- Human-friendly terminal usage plus stable surfaces for automation and agent orchestration
+- Local-first: OCR, transcription, and runtime state stay on your own machine
+- Creator-oriented: track creators and process saved backlogs, not just one URL at a time
+- Markdown-first: output is easy to archive, diff, search, and reuse
+- Agent-ready: stable command surfaces and machine-readable `ndjson` output
+- Runtime/code separation: installed package code and managed runtime state are kept separate
+- Caption-first where possible: prefers captions and subtitles before falling back to local transcription
 
-## What It Is For
+## Supported Platforms
 
-Media2MD is useful when you want to:
-
-- track specific creators over time instead of checking them manually
-- let an agent run scheduled collection and follow-up workflows
-- turn media output into Markdown that can later be organized into a wiki or knowledge base
-- process content on your own machine instead of depending on a hosted external service
-
-The current agent-oriented scheduling and adaptation work is primarily aligned with OpenClaw-based workflows.
+- Instagram
+  - reels
+  - posts
+  - carousel posts
+  - optional local OCR for post images
+- YouTube
+- TikTok
+- Bilibili
 
 ## Install
 
-Install the base package:
+Base install:
 
 ```bash
 pip install media2md
 ```
 
-Install provider extras when needed:
+Or install by agent, give it this repo doc and ask it to follow it:
+
+```text
+Read https://github.com/danielcanfly/media2md/blob/main/docs/AGENT_INSTALL.md and install, initialize, verify auth, and validate the Media2MD setup on this machine. Do not ask for passwords, do not bypass 2FA/CAPTCHA, and stop if manual login is required.
+```
+
+Provider extras:
 
 ```bash
 pip install "media2md[instagram]"
 pip install "media2md[youtube]"
 pip install "media2md[tiktok]"
+pip install "media2md[bilibili]"
 pip install "media2md[all]"
 ```
 
-Install Instagram post OCR support when you want OCR from post images:
+Instagram post OCR:
 
 ```bash
 pip install "media2md[instagram,ocr-mac-os]"
 pip install "media2md[instagram,ocr-windows-linux]"
 ```
-
-Use `ocr-mac-os` on macOS. Use `ocr-windows-linux` on Windows or Linux.
 
 Check the installed version:
 
@@ -60,30 +65,13 @@ media2md version
 
 ## Quick Start
 
-Initialize the managed runtime:
+Initialize the runtime:
 
 ```bash
 media2md init --language <language> --markdown-language <markdown-language> --timezone <timezone> --non-interactive
 ```
 
-Supported language values:
-
-```text
-en
-ja
-zh-TW
-zh-CN
-```
-
-Examples:
-
-```bash
-media2md init --language ja --markdown-language ja --timezone Asia/Tokyo --non-interactive
-media2md init --language zh-TW --markdown-language zh-TW --timezone Asia/Taipei --non-interactive
-media2md init --language en --markdown-language en --timezone <timezone> --non-interactive
-```
-
-Connect and verify provider auth:
+Connect provider auth:
 
 ```bash
 media2md auth profiles youtube --browser chrome
@@ -99,207 +87,70 @@ media2md creator refresh-catalog @creator-name --provider youtube --force-full
 media2md creator run @creator-name --provider youtube
 ```
 
-Inspect your runtime and health status:
+Check status:
 
 ```bash
 media2md status
 media2md doctor all
-media2md runtime base-path
-media2md runtime path
 ```
 
 ## Common Workflows
 
-Add a creator and refresh the creator catalog:
-
-```bash
-media2md creator add https://www.youtube.com/@creator-name --provider youtube
-media2md creator refresh-catalog @creator-name --provider youtube --force-full
-media2md creator status --provider youtube --creator @creator-name
-```
-
-Process a creator queue into Markdown:
-
-```bash
-media2md creator run @creator-name --provider youtube
-media2md status --output ndjson
-```
-
-Drain a creator backlog across multiple batches:
-
-```bash
-media2md creator run @creator-name --provider youtube --mode drain --batch-size 1 --max-batches 5
-```
-
-Use `--mode batch` when you want one batch only. Use `--mode drain` when you want Media2MD to keep moving through the saved backlog until it hits `remaining=0` or a configured limit such as `--max-batches`, `--max-runtime-minutes`, or `--max-failures`.
-
-Process a single media URL immediately:
+Single URL:
 
 ```bash
 media2md media inspect <media-url>
 media2md media add <media-url> --process-now
 ```
 
-Instagram media URLs can be reels, posts, legacy `/tv/` video URLs, or carousel posts. Post and carousel Markdown includes the caption plus OCR text grouped in image order when OCR support is installed.
-
-Create and verify a state backup:
+Drain a backlog:
 
 ```bash
-media2md data backup --destination ~/media2md-backups
-media2md data verify-backup ~/media2md-backups/media2md-state-YYYYMMDDTHHMMSSZ.zip
+media2md creator run @creator-name --provider youtube --mode drain --batch-size 1 --max-batches 5
 ```
 
-Creator inputs can be either full creator URLs or provider-qualified handles. For bare handles such as `@creator-name` or `creator-name`, pass `--provider` explicitly so the CLI knows which platform to target.
-
-`media2md creator refresh-catalog` is the preferred public command name for refreshing a creator catalog. `media2md creator sync` still exists in the full CLI surface for lower-level use.
-
-## Output and Runtime
-
-New installs default to `~/Downloads/media2md`. Existing installs that already use an older managed location keep that location until you explicitly move them.
-
-Useful runtime commands:
+Runtime paths:
 
 ```bash
 media2md runtime status
 media2md runtime base-path
 media2md runtime path
-media2md runtime set-base-path <path>
-media2md runtime install --force
 ```
 
-Typical Markdown output paths:
+## Docs
 
-```text
-markdown/youtube/<creator>/videos/
-markdown/youtube/<creator>/shorts/
-markdown/instagram/<creator>/reels/
-markdown/instagram/<creator>/posts/
-markdown/tiktok/<creator>/
-```
+- Human setup: [First Run Guide](https://github.com/danielcanfly/media2md/blob/main/docs/FIRST_RUN.md)
+- Agent setup: [Agent Install Guide](https://github.com/danielcanfly/media2md/blob/main/docs/AGENT_INSTALL.md)
+- Full command reference: [CLI Reference](https://github.com/danielcanfly/media2md/blob/main/docs/CLI_REFERENCE.md)
+- Release process: [RELEASE_PROCESS.md](https://github.com/danielcanfly/media2md/blob/main/docs/RELEASE_PROCESS.md)
 
-After a successful `creator run` or `media add --process-now`, Media2MD prints:
+## Good Fit
 
-```text
-latest_markdown_path=...
-result_folder=...
-open_in_finder_hint=open "..."
-```
+Media2MD is a strong fit when you want to:
 
-`latest_markdown_path` points to the newest Markdown file created by that command. `result_folder` is the folder that contains the output so you can open it directly in Finder.
-
-## Documentation
-
-- [First Run Guide](docs/FIRST_RUN.md)
-- [CLI Reference](docs/CLI_REFERENCE.md)
-- [Release Process](docs/RELEASE_PROCESS.md)
-- [Changelog](CHANGELOG.md)
-
-## CLI Areas
-
-- `auth`: browser profile discovery, connection, verification, refresh, and status
-- `creator`: add creators, refresh catalogs, inspect status, set policies, and run processing
-- `media`: inspect URLs, add media, process registered items, and list tracked entries
-- `doctor`: environment, provider, and access diagnostics
-- `data`: backup, backup verification, and destructive data operations
-- `runtime`: managed runtime install, import, and path/status helpers
-- `scheduler`: scheduled processing entrypoints
-- `update`: package update and rollback helpers
-
-For machine-readable integrations, many commands support `--output ndjson`.
-
-`media2md doctor instagram-backends` also reports the current Instagram OCR route and whether local post OCR is ready on this machine.
-
-## Example Commands
-
-Check system-wide status:
-
-```bash
-media2md status
-media2md status --output ndjson
-```
-
-Show or change settings:
-
-```bash
-media2md settings show
-media2md settings set --instagram-backend auto --youtube-caption-first --update-check-on-use
-```
-
-Set creator policy:
-
-```bash
-media2md creator policy set <creator> --provider <provider> \
-  --batch-size-type <type-a>=<limit-a> \
-  --batch-size-type <type-b>=<limit-b> \
-  --batch-size-type <type-c>=<limit-c> \
-  --scheduled-processing
-```
-
-Run the scheduler tick manually:
-
-```bash
-media2md scheduler tick --non-interactive --output ndjson
-```
-
-See the full command reference in [docs/CLI_REFERENCE.md](./docs/CLI_REFERENCE.md).
-
-## Typical Use Cases
-
-Media2MD is a good fit when you want to:
-
-- archive creator output into Markdown on your own machine
-- build a personal or team knowledge base from social/video content
-- inspect or process specific URLs without building your own scraping pipeline
-- feed normalized Markdown artifacts into downstream agent or search workflows
+- follow creators over time instead of manually checking feeds
+- build a local Markdown archive from social and video content
+- feed normalized Markdown into search, notes, RAG, or agent workflows
+- keep processing on your own machine instead of relying on a hosted service
 
 It is a weaker fit when you need:
 
 - a hosted SaaS workflow
-- remote browser automation for account login
-- bypasses for provider auth or challenge mechanisms
-- a fully managed cloud ingestion service
+- remote browser login automation
+- challenge bypasses or account-evasion tooling
+- a cloud-managed ingestion service
 
-## What It Does Not Do
+## Safety
 
-Media2MD does not:
-
-- type passwords for you
-- bypass 2FA, CAPTCHA, or account challenges
-- turn private platform access into public access
-- remove the need to follow platform terms, copyright rules, privacy rules, or local law
-
-## Notes
-
-- Some providers require their corresponding extra dependencies.
-- Instagram post and carousel OCR uses local OCR only. No external OCR API or LLM service is required.
-- Browser-backed auth works best when the target session is already healthy in the browser.
-- The managed runtime separates code from state to make local upgrades and recovery easier.
-- The package is published on PyPI, but your actual media processing happens locally.
-
-## Project Status
-
-Current published version: `0.9.5`
-
-Recent release themes in `0.9.x` include:
-
-- stronger TikTok transport and metadata fallback handling
-- more truthful health and degraded-ready reporting
-- safer backup and runtime integrity behavior
-- tighter regression coverage for acceptance-derived failures
-
-See the [Changelog](https://github.com/danielcanfly/media2md/blob/main/CHANGELOG.md) for version-by-version details.
-
-## Contributing
-
-See [CONTRIBUTING.md](https://github.com/danielcanfly/media2md/blob/main/CONTRIBUTING.md).
+Media2MD does not type passwords, bypass 2FA, solve CAPTCHA, or defeat provider access controls. It works best when the target account session is already healthy in a local browser profile that you explicitly choose.
 
 ## Links
 
 - Repository: [danielcanfly/media2md](https://github.com/danielcanfly/media2md)
 - PyPI: [media2md](https://pypi.org/project/media2md/)
-- Issues: [GitHub Issues](https://github.com/danielcanfly/media2md/issues)
+- First Run Guide: [docs/FIRST_RUN.md](https://github.com/danielcanfly/media2md/blob/main/docs/FIRST_RUN.md)
+- Agent Install Guide: [docs/AGENT_INSTALL.md](https://github.com/danielcanfly/media2md/blob/main/docs/AGENT_INSTALL.md)
+- CLI Reference: [docs/CLI_REFERENCE.md](https://github.com/danielcanfly/media2md/blob/main/docs/CLI_REFERENCE.md)
+- Release Process: [docs/RELEASE_PROCESS.md](https://github.com/danielcanfly/media2md/blob/main/docs/RELEASE_PROCESS.md)
 - Changelog: [CHANGELOG.md](https://github.com/danielcanfly/media2md/blob/main/CHANGELOG.md)
-
-## Responsible Use
-
-Only download content you own, are authorized to process, or may lawfully archive. Platform terms, copyright, privacy, and local laws still apply.
+- Contributing: [CONTRIBUTING.md](https://github.com/danielcanfly/media2md/blob/main/CONTRIBUTING.md)
