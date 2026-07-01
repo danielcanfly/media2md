@@ -77,6 +77,22 @@ def test_runtime_base_path_command(monkeypatch,tmp_path):
  from media2md import cli
  assert cli.runtime_command(['base-path'])==0
 
+def test_managed_runtime_generic_media_script_starts_without_src_pythonpath(monkeypatch,tmp_path):
+ monkeypatch.setenv('HOME',str(tmp_path))
+ root=ensure_runtime(force=True)
+ env=os.environ.copy()
+ env.pop('PYTHONPATH',None)
+ env['HOME']=str(tmp_path)
+ result=subprocess.run(
+  [sys.executable,str(root/'scripts'/'generic_media.py'),'--help'],
+  cwd=root,
+  capture_output=True,
+  text=True,
+  env=env,
+ )
+ assert result.returncode==0, result.stderr or result.stdout
+ assert 'usage:' in result.stdout.lower()
+
 def test_runtime_set_base_path_migrates_existing_managed_tree(monkeypatch,tmp_path):
  monkeypatch.setenv('HOME',str(tmp_path))
  from media2md import cli

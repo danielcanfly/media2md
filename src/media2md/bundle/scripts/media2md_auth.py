@@ -14,7 +14,10 @@ try:
     from media2md.health_taxonomy import health_category
 except ModuleNotFoundError:
     from media2md_contract_compat import make_event_payload, make_output_model, make_section, health_category
-from media2md.remediation_service import auth_verify_command, provider_profile_guidance
+try:
+    from media2md.remediation_service import auth_verify_command, provider_profile_guidance
+except ModuleNotFoundError:
+    from media2md_remediation_compat import auth_verify_command, provider_profile_guidance
 from media2md_youtube_session import profile_inventory, validate_profile, verify_youtube_session, load_auth_profiles, save_auth_profiles
 from media2md_auth_shared import export_profile_snapshot, load_cookie_jar, cookie_stats, refresh_if_configured
 

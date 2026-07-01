@@ -15,7 +15,10 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from media2md.remediation_service import media2md_install_guidance, youtube_profile_guidance
+try:
+    from media2md.remediation_service import media2md_install_guidance, youtube_profile_guidance
+except ModuleNotFoundError:
+    from media2md_remediation_compat import media2md_install_guidance, youtube_profile_guidance
 
 from media2md_paths import command_path
 

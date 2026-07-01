@@ -15,7 +15,10 @@ try:
     from media2md.cli_output_service import make_event_payload, make_output_model, make_section
 except ModuleNotFoundError:
     from media2md_contract_compat import make_event_payload, make_output_model, make_section
-from media2md.remediation_service import uninstall_dry_run_next_step
+try:
+    from media2md.remediation_service import uninstall_dry_run_next_step
+except ModuleNotFoundError:
+    from media2md_remediation_compat import uninstall_dry_run_next_step
 
 
 def scheduler_tick_common(
