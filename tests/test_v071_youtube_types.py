@@ -144,6 +144,44 @@ def test_youtube_typed_batch_combines_normal_and_shorts_without_long(tmp_path, m
     conn.close()
 
 
+def test_bilibili_typed_batch_selects_bilibili_video_items(tmp_path, monkeypatch):
+    import media2md_registry as registry
+
+    monkeypatch.setattr(registry, "DB", tmp_path / "typed-bilibili.db")
+    monkeypatch.setattr(registry, "CONFIG", tmp_path / "config.json")
+    (tmp_path / "config.json").write_text("{}")
+    conn = registry.connect()
+    now = registry.iso_now()
+    conn.execute(
+        "INSERT INTO creators(provider,external_id,handle,source_url,created_at,updated_at) VALUES('bilibili','1510588366','1510588366','https://space.bilibili.com/1510588366',?,?)",
+        (now, now),
+    )
+    creator_id = conn.execute("SELECT id FROM creators").fetchone()[0]
+    for index in range(3):
+        media_id = f"BVTEST{index:05d}"
+        conn.execute(
+            """INSERT INTO media(provider,creator_id,external_id,source_url,duration_seconds,media_type,processing_class,is_current,status,published_at,created_at,updated_at)
+               VALUES('bilibili',?,?,?,?,?,'bilibili_video',1,'pending',?,?,?)""",
+            (
+                creator_id,
+                media_id,
+                f"https://www.bilibili.com/video/{media_id}",
+                600,
+                "bilibili_video",
+                f"2026-07-{3-index:02d}T00:00:00+00:00",
+                now,
+                now,
+            ),
+        )
+    conn.commit()
+    clauses = ["m.creator_id=?", "m.is_current=1", "m.status NOT IN ('completed','skipped')"]
+    rows = registry._select_typed_batch(
+        conn, "bilibili", clauses, [creator_id], "DESC", 100, {"bilibili_video": 2}
+    )
+    assert [row["external_id"] for row in rows] == ["BVTEST00000", "BVTEST00001"]
+    conn.close()
+
+
 def test_manual_short_updates_creator_counts_and_invalidates_exact_snapshot(tmp_path, monkeypatch):
     import generic_media
     import media2md_registry as registry

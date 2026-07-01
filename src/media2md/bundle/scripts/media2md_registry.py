@@ -2950,7 +2950,10 @@ def _select_typed_batch(
         )
         return selected
 
-    target_type = "tiktok_video" if provider == "tiktok" else "instagram_reel"
+    if provider == "bilibili":
+        target_type = "bilibili_video"
+    else:
+        target_type = "tiktok_video" if provider == "tiktok" else "instagram_reel"
     quota = typed.get(target_type, batch_size)
     return conn.execute(
         base_sql + " AND COALESCE(m.processing_class,m.media_type)=?" + order_sql + " LIMIT ?",
