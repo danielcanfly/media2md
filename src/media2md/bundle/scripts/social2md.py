@@ -154,7 +154,7 @@ REGISTRY_DB = ROOT / "data" / "media2md.db"
 AUTH_PROFILES = ROOT / "config" / "auth_profiles.json"
 VERSION = "0.9.5"
 REPOSITORY = "danielcanfly/media2md"
-PROVIDERS = ("instagram", "youtube", "tiktok")
+PROVIDERS = ("instagram", "youtube", "tiktok", "bilibili")
 LOCALES = ("zh-TW", "zh-CN", "en", "ja")
 
 
@@ -725,6 +725,7 @@ def creator_run(args: argparse.Namespace) -> int:
 def add_creator(args: argparse.Namespace) -> int:
     add_creator_instagram_service = optional_attr("public_cli_creator_service", "add_creator_instagram")
     provider = args.provider
+    resolved_target = None
     refresh_auth(provider)
     if provider == "instagram":
         normalized = normalize_creator(provider, args.creator)
@@ -755,9 +756,23 @@ def add_creator(args: argparse.Namespace) -> int:
         print(f"CREATOR_ADDED provider=instagram creator={normalized} sync_enabled=false")
         return 0
     # For YouTube and TikTok, a full initial catalog establishes the platform identity.
-    code = registry(["sync", provider, args.creator, "--mode", "full"])
+    creator_arg = args.creator
+    if provider == "bilibili":
+        try:
+            from media2md.provider_resolution import resolve_creator_target
+
+            resolved_target = resolve_creator_target(args.creator, provider, command_name="creator add")
+            if resolved_target.creator:
+                creator_arg = str(resolved_target.creator)
+        except Exception:
+            resolved_target = None
+    code = registry(["sync", provider, creator_arg, "--mode", "full"])
     if code == 0:
-        print(f"CREATOR_ADDED provider={provider} creator={normalize_creator(provider,args.creator)} sync_enabled=false")
+        print(f"CREATOR_ADDED provider={provider} creator={normalize_creator(provider,creator_arg)} sync_enabled=false")
+        if provider == "bilibili" and resolved_target is not None and getattr(resolved_target, "lookup_source", None) == "bilibili_video":
+            print(f"creator_lookup_source={resolved_target.lookup_source}")
+            print(f"creator_lookup_media_id={resolved_target.media_id or '-'}")
+            print(f"creator_lookup_canonical_url={resolved_target.canonical_url}")
     return code
 
 

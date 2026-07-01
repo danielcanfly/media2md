@@ -145,7 +145,7 @@ REGISTRY_DB = ROOT / "data" / "media2md.db"
 AUTH_PROFILES = ROOT / "config" / "auth_profiles.json"
 VERSION = "0.9.5"
 REPOSITORY = "danielcanfly/media2md"
-PROVIDERS = ("instagram", "youtube", "tiktok")
+PROVIDERS = ("instagram", "youtube", "tiktok", "bilibili")
 LOCALES = ("zh-TW", "zh-CN", "en", "ja")
 
 
@@ -502,6 +502,8 @@ def settings_set(args: argparse.Namespace) -> int:
         config.setdefault("providers",{}).setdefault("youtube",{})["caption_first"]=args.youtube_caption_first
     if getattr(args, "youtube_caption_languages", None):
         config.setdefault("providers",{}).setdefault("youtube",{})["caption_languages"]=[item.strip() for item in args.youtube_caption_languages.split(",") if item.strip()]
+    if getattr(args, "youtube_sponsor_filter", None):
+        config.setdefault("providers",{}).setdefault("youtube",{})["sponsor_filter"]=args.youtube_sponsor_filter
     if getattr(args, "youtube_audio_strategies", None):
         config.setdefault("providers",{}).setdefault("youtube",{})["audio_download_strategies"]=[item.strip() for item in args.youtube_audio_strategies.split(",") if item.strip()]
     if getattr(args, "youtube_long_video_threshold_minutes", None) is not None:
@@ -780,6 +782,7 @@ def add_creator(args: argparse.Namespace) -> int:
     creator_catalog_metadata_service = optional_attr("public_cli_state_service", "creator_catalog_metadata")
     youtube_catalog_surfaces_service = optional_attr("media2md_registry", "youtube_catalog_surfaces")
     provider = args.provider
+    resolved_target = None
     refresh_auth(provider)
     if provider == "instagram":
         creator = normalize_creator(provider, args.creator)
@@ -811,17 +814,31 @@ def add_creator(args: argparse.Namespace) -> int:
         print(f"CREATOR_ADDED provider=instagram creator={creator} sync_enabled=false")
         return 0
     # For YouTube and TikTok, a full initial catalog establishes the platform identity.
-    code = registry(["sync", provider, args.creator, "--mode", "full"])
+    creator_arg = args.creator
+    if provider == "bilibili":
+        try:
+            from media2md.provider_resolution import resolve_creator_target
+
+            resolved_target = resolve_creator_target(args.creator, provider, command_name="creator add")
+            if resolved_target.creator:
+                creator_arg = str(resolved_target.creator)
+        except Exception:
+            resolved_target = None
+    code = registry(["sync", provider, creator_arg, "--mode", "full"])
     if code == 0:
-        normalized_creator = normalize_creator(provider,args.creator)
+        normalized_creator = normalize_creator(provider,creator_arg)
         print(f"CREATOR_ADDED provider={provider} creator={normalized_creator} sync_enabled=false")
+        if provider == "bilibili" and resolved_target is not None and getattr(resolved_target, "lookup_source", None) == "bilibili_video":
+            print(f"creator_lookup_source={resolved_target.lookup_source}")
+            print(f"creator_lookup_media_id={resolved_target.media_id or '-'}")
+            print(f"creator_lookup_canonical_url={resolved_target.canonical_url}")
         row = next(
             (item for item in registry_rows() if item["provider"] == provider and str(item["handle"]).lower() == normalized_creator.lower()),
             None,
         )
         if row is not None and creator_catalog_metadata_service is not None:
             metadata = creator_catalog_metadata_service(row, youtube_catalog_surfaces=youtube_catalog_surfaces_service)
-            if provider == "youtube":
+            if provider in {"youtube", "bilibili"}:
                 print(f"catalog_surface={metadata['catalog_surface']}")
                 print(f"catalog_surfaces={','.join(metadata['catalog_surfaces'])}")
             if metadata.get("source_url"):
@@ -1143,7 +1160,7 @@ def parser() -> argparse.ArgumentParser:
         status=sub.add_parser("status"); status.add_argument("--output",choices=("human","ndjson"),default="human"); status.set_defaults(func=system_status)
         settingsp=sub.add_parser("settings"); setsub=settingsp.add_subparsers(dest="settings_command",required=True)
         show=setsub.add_parser("show"); show.add_argument("--output",choices=("human","ndjson"),default="human"); show.set_defaults(func=settings_show)
-        setcmd=setsub.add_parser("set"); setcmd.add_argument("--instagram-backend",choices=("auto","gallery-dl","instaloader")); setcmd.add_argument("--youtube-js-runtime",choices=("auto","deno","node","quickjs")); setcmd.add_argument("--youtube-allow-remote-ejs",action=argparse.BooleanOptionalAction); setcmd.add_argument("--youtube-po-token-provider",choices=("disabled","none","bgutil","wpc-experimental")); setcmd.add_argument("--youtube-pot-browser-path"); setcmd.add_argument("--youtube-caption-first",action=argparse.BooleanOptionalAction); setcmd.add_argument("--youtube-caption-languages"); setcmd.add_argument("--youtube-audio-strategies"); setcmd.add_argument("--youtube-long-video-threshold-minutes",type=float); setcmd.add_argument("--youtube-chunk-minutes",type=float); setcmd.add_argument("--youtube-chunk-model"); setcmd.add_argument("--tiktok-impersonate"); setcmd.add_argument("--update-check-every-days",type=float); setcmd.add_argument("--update-check-on-use",action=argparse.BooleanOptionalAction); setcmd.add_argument("--output",choices=("human","ndjson"),default="human"); setcmd.set_defaults(func=settings_set)
+        setcmd=setsub.add_parser("set"); setcmd.add_argument("--instagram-backend",choices=("auto","gallery-dl","instaloader")); setcmd.add_argument("--youtube-js-runtime",choices=("auto","deno","node","quickjs")); setcmd.add_argument("--youtube-allow-remote-ejs",action=argparse.BooleanOptionalAction); setcmd.add_argument("--youtube-po-token-provider",choices=("disabled","none","bgutil","wpc-experimental")); setcmd.add_argument("--youtube-pot-browser-path"); setcmd.add_argument("--youtube-caption-first",action=argparse.BooleanOptionalAction); setcmd.add_argument("--youtube-caption-languages"); setcmd.add_argument("--youtube-sponsor-filter",choices=("off","conservative","aggressive")); setcmd.add_argument("--youtube-audio-strategies"); setcmd.add_argument("--youtube-long-video-threshold-minutes",type=float); setcmd.add_argument("--youtube-chunk-minutes",type=float); setcmd.add_argument("--youtube-chunk-model"); setcmd.add_argument("--tiktok-impersonate"); setcmd.add_argument("--update-check-every-days",type=float); setcmd.add_argument("--update-check-on-use",action=argparse.BooleanOptionalAction); setcmd.add_argument("--output",choices=("human","ndjson"),default="human"); setcmd.set_defaults(func=settings_set)
         agentp=sub.add_parser("agent"); agentsub=agentp.add_subparsers(dest="agent_command",required=True); ast=agentsub.add_parser("status"); ast.add_argument("--output",choices=("human","ndjson"),default="human"); ast.set_defaults(func=agent_status)
         init=sub.add_parser("init")
         init.add_argument("--language", "--ui-locale", dest="language", choices=LOCALES)

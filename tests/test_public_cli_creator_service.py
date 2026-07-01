@@ -242,6 +242,29 @@ def test_emit_creator_run_catalog_context_includes_instagram_surfaces(capsys):
     assert "catalog_source_url=https://www.instagram.com/creator.name/" in out
 
 
+def test_emit_creator_run_catalog_context_includes_bilibili_video_surface(capsys):
+    class _Args:
+        output = "human"
+
+    emit_creator_run_catalog_context(
+        args=_Args(),
+        provider="bilibili",
+        creator="1510588366",
+        existing_row={
+            "source_url": "https://space.bilibili.com/1510588366",
+            "tracked": 50,
+            "last_sync_at": "2026-07-01T00:00:00+00:00",
+            "current_total_exact": 1,
+        },
+        emit=lambda payload, output: None,
+        youtube_catalog_surfaces=None,
+    )
+    out = capsys.readouterr().out
+    assert "catalog_surface=videos" in out
+    assert "catalog_surfaces=videos" in out
+    assert "catalog_source_url=https://space.bilibili.com/1510588366" in out
+
+
 def test_creator_run_instagram_forwards_batch_sizes_and_catalog_surface():
     recorded: list[list[str]] = []
 

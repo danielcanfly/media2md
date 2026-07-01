@@ -4,9 +4,11 @@ import pytest
 
 from media2md.provider_resolution import (
     normalize_creator_handle,
+    resolve_bilibili_creator_from_video,
     resolve_creator_target,
     resolve_provider_for_creator,
 )
+from media2md.results import ProviderResolutionResult
 
 
 def test_resolve_provider_for_creator_accepts_explicit_provider():
@@ -53,3 +55,26 @@ def test_resolve_creator_target_preserves_youtube_surface():
     assert result.creator == "creator-name"
     assert result.canonical_url == "https://www.youtube.com/@creator-name/shorts"
     assert result.surface == "shorts"
+
+
+def test_resolve_creator_target_can_promote_bilibili_video_to_canonical_creator(monkeypatch):
+    from media2md import provider_resolution
+
+    monkeypatch.setattr(
+        provider_resolution,
+        "resolve_bilibili_creator_from_video",
+        lambda value: ProviderResolutionResult(
+            provider="bilibili",
+            kind="creator",
+            canonical_url="https://space.bilibili.com/1510588366",
+            creator="1510588366",
+            media_id="BV1ah4y1M7aQ",
+            surface=None,
+            lookup_source="bilibili_video",
+        ),
+    )
+    result = resolve_creator_target("https://www.bilibili.com/video/BV1ah4y1M7aQ", "bilibili", command_name="creator add")
+    assert result.provider == "bilibili"
+    assert result.creator == "1510588366"
+    assert result.canonical_url == "https://space.bilibili.com/1510588366"
+    assert result.lookup_source == "bilibili_video"

@@ -53,6 +53,7 @@ class ProviderResolutionResult:
     creator: str | None = None
     media_id: str | None = None
     surface: str | None = None
+    lookup_source: str | None = None
 
 
 @dataclass(frozen=True)

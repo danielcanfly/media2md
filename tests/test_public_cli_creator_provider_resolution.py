@@ -21,6 +21,7 @@ def test_resolve_creator_provider_accepts_full_creator_urls():
     assert cli.resolve_creator_provider("https://www.youtube.com/@creator-name", None, command_name="creator add") == "youtube"
     assert cli.resolve_creator_provider("https://www.tiktok.com/@creator-name", None, command_name="creator sync") == "tiktok"
     assert cli.resolve_creator_provider("https://www.instagram.com/creator.name/", None, command_name="creator run") == "instagram"
+    assert cli.resolve_creator_provider("https://www.bilibili.com/video/BV1ah4y1M7aQ", None, command_name="creator add") == "bilibili"
 
 
 @pytest.mark.parametrize(

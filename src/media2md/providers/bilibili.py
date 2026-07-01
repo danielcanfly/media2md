@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from media2md.urls import detect_provider, normalize_creator
+from media2md.urls import BILIBILI_BVID_RE, detect_provider, normalize_creator
 
 from ..provider_catalog import provider_metadata
 from ..provider_contract import ProviderAdapter
@@ -15,6 +15,17 @@ class BilibiliAdapter(ProviderAdapter):
         return detect_provider(url) == self.name
 
     def resolve_creator_input(self, value: str) -> ProviderResolutionResult:
+        text = str(value or "").strip()
+        if "bilibili.com/video/" in text.lower() or BILIBILI_BVID_RE.fullmatch(text):
+            return ProviderResolutionResult(
+                provider=self.name,
+                kind="creator",
+                canonical_url=text if text.startswith("http") else f"https://www.bilibili.com/video/{text}",
+                creator=None,
+                media_id=(text if BILIBILI_BVID_RE.fullmatch(text) else None),
+                surface=None,
+                lookup_source="bilibili_video",
+            )
         normalized = normalize_creator(self.name, value)
         return ProviderResolutionResult(
             provider=normalized.provider,
@@ -23,6 +34,7 @@ class BilibiliAdapter(ProviderAdapter):
             creator=normalized.creator,
             media_id=normalized.media_id,
             surface=normalized.surface,
+            lookup_source="direct_creator",
         )
 
     def health_check(self) -> HealthResult:

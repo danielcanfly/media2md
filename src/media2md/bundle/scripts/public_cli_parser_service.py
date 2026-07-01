@@ -58,6 +58,7 @@ def add_common_top_level_commands(
     setcmd.add_argument("--youtube-pot-browser-path")
     setcmd.add_argument("--youtube-caption-first", action=argparse.BooleanOptionalAction)
     setcmd.add_argument("--youtube-caption-languages")
+    setcmd.add_argument("--youtube-sponsor-filter", choices=("off", "conservative", "aggressive"))
     setcmd.add_argument("--youtube-audio-strategies")
     setcmd.add_argument("--youtube-long-video-threshold-minutes", type=float)
     setcmd.add_argument("--youtube-chunk-minutes", type=float)

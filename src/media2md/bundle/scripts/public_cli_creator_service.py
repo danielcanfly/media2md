@@ -105,6 +105,9 @@ def emit_creator_run_catalog_context(
     elif provider == "instagram":
         payload_data["catalog_surface"] = _instagram_surface_from_source_url(source_url)
         payload_data["catalog_surfaces"] = ["reels", "posts"] if payload_data["catalog_surface"] == "posts" else ["reels"]
+    elif provider == "bilibili":
+        payload_data["catalog_surface"] = "videos"
+        payload_data["catalog_surfaces"] = ["videos"]
     payload = make_output_model(
         event="creator_run_catalog_context",
         schema="media2md.cli.creator_run_catalog_context/v1",
@@ -127,7 +130,7 @@ def emit_creator_run_catalog_context(
         print(f"catalog_last_synced_at={payload['catalog_last_synced_at'] or '-'}", flush=True)
         print(f"catalog_exact={str(payload['catalog_exact']).lower()}", flush=True)
         print(f"tracked={payload['tracked']}", flush=True)
-        if provider in {"youtube", "instagram"}:
+        if provider in {"youtube", "instagram", "bilibili"}:
             print(f"catalog_surface={payload['catalog_surface']}", flush=True)
             print(f"catalog_surfaces={','.join(payload['catalog_surfaces'])}", flush=True)
         print(f"catalog_source_url={source_url or '-'}", flush=True)

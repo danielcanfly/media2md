@@ -77,6 +77,10 @@ def creator_catalog_metadata(
         metadata["catalog_surface"] = surface
         metadata["catalog_surfaces"] = ["reels", "posts"] if surface == "posts" else ["reels"]
         return metadata
+    if row.get("provider") == "bilibili":
+        metadata["catalog_surface"] = "videos"
+        metadata["catalog_surfaces"] = ["videos"]
+        return metadata
     if row.get("provider") != "youtube":
         return metadata
     surfaces = tuple(youtube_catalog_surfaces() if youtube_catalog_surfaces is not None else ("videos", "shorts"))
@@ -146,7 +150,7 @@ def render_creator_status(
                     f"catalog_surfaces={','.join(metadata['catalog_surfaces'])} "
                     f"url={metadata.get('source_url') or '-'}"
                 )
-            elif row["provider"] == "instagram":
+            elif row["provider"] in {"instagram", "bilibili"}:
                 print(
                     f"  SOURCE surface={metadata['catalog_surface']} "
                     f"catalog_surfaces={','.join(metadata['catalog_surfaces'])} "
@@ -359,6 +363,8 @@ def apply_settings_updates(config: dict[str, Any], args) -> dict[str, Any]:
         config.setdefault("providers", {}).setdefault("youtube", {})["caption_languages"] = [
             item.strip() for item in args.youtube_caption_languages.split(",") if item.strip()
         ]
+    if getattr(args, "youtube_sponsor_filter", None):
+        config.setdefault("providers", {}).setdefault("youtube", {})["sponsor_filter"] = args.youtube_sponsor_filter
     if getattr(args, "youtube_audio_strategies", None):
         config.setdefault("providers", {}).setdefault("youtube", {})["audio_download_strategies"] = [
             item.strip() for item in args.youtube_audio_strategies.split(",") if item.strip()

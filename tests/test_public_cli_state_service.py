@@ -25,6 +25,7 @@ class _Args:
     youtube_pot_browser_path = None
     youtube_caption_first = None
     youtube_caption_languages = None
+    youtube_sponsor_filter = None
     youtube_audio_strategies = None
     youtube_long_video_threshold_minutes = None
     youtube_chunk_minutes = None
@@ -129,6 +130,7 @@ def test_apply_settings_updates_handles_provider_fields():
     args.instagram_backend = "gallery-dl"
     args.instagram_catalog_surface = "mixed"
     args.youtube_caption_languages = "ja,en"
+    args.youtube_sponsor_filter = "aggressive"
     args.youtube_audio_strategies = "direct,proxy"
     args.youtube_long_video_threshold_minutes = 7
     args.youtube_chunk_minutes = 3
@@ -139,6 +141,7 @@ def test_apply_settings_updates_handles_provider_fields():
     assert config["providers"]["instagram"]["backend"] == "gallery-dl"
     assert config["providers"]["instagram"]["catalog_surface"] == "mixed"
     assert config["providers"]["youtube"]["caption_languages"] == ["ja", "en"]
+    assert config["providers"]["youtube"]["sponsor_filter"] == "aggressive"
     assert config["providers"]["youtube"]["audio_download_strategies"] == ["direct", "proxy"]
     assert config["providers"]["youtube"]["long_video_threshold_seconds"] == 420
     assert config["providers"]["youtube"]["chunk_seconds"] == 180
@@ -159,10 +162,12 @@ def test_agent_status_payload_keeps_schema_version():
     assert "creator delete" in payload["commands"]["confirmation"]
     assert "youtube" in payload["provider_commands"]
     assert "doctor youtube-access" in payload["provider_commands"]["youtube"]["read"]
+    assert "doctor bilibili-access" in payload["provider_commands"]["bilibili"]["read"]
     assert "provider_capabilities" in payload
     assert payload["provider_capabilities"]["youtube"]["backends"] == ["yt-dlp", "yt-dlp-ejs"]
     assert payload["provider_capabilities"]["instagram"]["default_backend"] == "auto"
     assert payload["provider_capabilities"]["tiktok"]["extra"] == "tiktok"
+    assert payload["provider_capabilities"]["bilibili"]["extra"] == "bilibili"
     assert payload["provider_capabilities"]["youtube"]["capabilities"]["creator_sync"] is True
     assert "creator refresh-catalog" in payload["provider_capabilities"]["youtube"]["commands"]["write"]
 
@@ -190,6 +195,46 @@ def test_creator_catalog_metadata_derives_instagram_surface_from_source_url():
     )
     assert mixed_like["catalog_surface"] == "posts"
     assert mixed_like["catalog_surfaces"] == ["reels", "posts"]
+
+
+def test_creator_catalog_metadata_derives_bilibili_surface_from_source_url():
+    metadata = creator_catalog_metadata(
+        {"provider": "bilibili", "source_url": "https://space.bilibili.com/1510588366"}
+    )
+    assert metadata["source_url"] == "https://space.bilibili.com/1510588366"
+    assert metadata["catalog_surface"] == "videos"
+    assert metadata["catalog_surfaces"] == ["videos"]
+
+
+def test_render_creator_status_human_includes_bilibili_catalog_surface(capsys):
+    class _Args:
+        output = "human"
+
+    result = render_creator_status(
+        _Args(),
+        rows=[{
+            "provider": "bilibili",
+            "handle": "1510588366",
+            "source_url": "https://space.bilibili.com/1510588366",
+            "current_total": 50,
+            "current_total_exact": 1,
+            "tracked": 50,
+            "completed": 0,
+            "remaining": 50,
+            "last_full_exact_total": 50,
+            "last_full_exact_at": "2026-07-01T00:00:00+00:00",
+        }],
+        effective_policy=lambda provider, creator: {"sync": {"enabled": False, "every_minutes": 1440, "full_every_minutes": 10080}, "processing": {"mode": "batch", "batch_sizes": {}}, "filters": {}},
+        emit=lambda payload, output: None,
+        duration=lambda minutes: {1440: "1d", 10080: "1w"}.get(minutes, str(minutes)),
+        normalize_batch_sizes=lambda value: {"bilibili_video": 5},
+        include_youtube_breakdown=True,
+        include_batch_limits=True,
+        youtube_catalog_surfaces=None,
+    )
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "SOURCE surface=videos catalog_surfaces=videos url=https://space.bilibili.com/1510588366" in out
 
 
 def test_render_creator_status_ndjson_includes_youtube_catalog_metadata():

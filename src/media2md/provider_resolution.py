@@ -35,6 +35,27 @@ def normalize_creator_handle(provider: str, value: str) -> str:
     return str(normalize_creator(provider, value).creator)
 
 
+def resolve_bilibili_creator_from_video(value: str) -> ProviderResolutionResult:
+    import importlib
+
+    generic_media = importlib.import_module("media2md.bundle.scripts.generic_media")
+    normalized = generic_media.normalize_media("bilibili", value)
+    metadata = generic_media.inspect_bilibili_metadata(normalized.canonical_url, str(normalized.media_id or ""))
+    creator = str(metadata.get("channel_id") or "").strip()
+    if not creator:
+        raise RuntimeError("Bilibili video metadata did not include a canonical creator ID.")
+    canonical = normalize_creator("bilibili", creator)
+    return ProviderResolutionResult(
+        provider="bilibili",
+        kind="creator",
+        canonical_url=canonical.canonical_url,
+        creator=canonical.creator,
+        media_id=str(normalized.media_id or ""),
+        surface=canonical.surface,
+        lookup_source="bilibili_video",
+    )
+
+
 def resolve_creator_target(
     value: str,
     provider: str | None,
@@ -44,7 +65,10 @@ def resolve_creator_target(
     chosen = resolve_provider_for_creator(value, provider, command_name=command_name)
     for adapter in all_provider_adapters():
         if adapter.name == chosen:
-            return adapter.resolve_creator_input(value)
+            result = adapter.resolve_creator_input(value)
+            if chosen == "bilibili" and result.lookup_source == "bilibili_video":
+                return resolve_bilibili_creator_from_video(value)
+            return result
     normalized = normalize_creator(chosen, value)
     return ProviderResolutionResult(
         provider=normalized.provider,
@@ -53,4 +77,5 @@ def resolve_creator_target(
         creator=normalized.creator,
         media_id=normalized.media_id,
         surface=normalized.surface,
+        lookup_source="direct_creator",
     )
