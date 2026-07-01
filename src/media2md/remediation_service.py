@@ -52,6 +52,7 @@ def doctor_access_command(provider: str) -> str:
     placeholders = {
         "youtube": "--video-id=<VIDEO_ID>",
         "tiktok": "--video-id=<VIDEO_ID> --creator=<CREATOR>",
+        "bilibili": "--video-id=<BV_VIDEO_ID>",
     }
     suffix = placeholders.get(provider, "")
     return f"media2md doctor {provider}-access{(' ' + suffix) if suffix else ''}".strip()

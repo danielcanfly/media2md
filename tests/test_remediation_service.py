@@ -75,3 +75,7 @@ def test_provider_access_guidance_covers_dependency_and_doctor_paths():
     assert "Run: media2md doctor youtube-access --video-id=<VIDEO_ID>" in po
     settings = provider_access_guidance("youtube", required_action="configure_non_browser_po_token_or_try_another_video")
     assert "Run: media2md settings show" in settings
+
+
+def test_bilibili_doctor_access_command_uses_bv_placeholder():
+    assert doctor_access_command("bilibili") == "media2md doctor bilibili-access --video-id=<BV_VIDEO_ID>"

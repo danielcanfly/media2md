@@ -67,7 +67,7 @@ _CATALOG: tuple[ProviderMetadata, ...] = (
         backends=("bilibili-api",),
         capabilities=ProviderCapabilities(single_media=True, creator_sync=True, batch_drain=True),
         command_capabilities=ProviderCommandCapabilities(
-            read=("auth status", "creator status", "creator policy show"),
+            read=("auth status", "creator status", "creator policy show", "doctor bilibili-access"),
             write=("creator add", "creator refresh-catalog", "creator run"),
             confirmation=("creator delete",),
         ),

@@ -25,6 +25,14 @@ def test_youtube_access_payload_invalid_id_keeps_guidance_contract():
     assert payload["health_status"] == "warn"
 
 
+def test_bilibili_access_payload_invalid_id_keeps_guidance_contract():
+    payload = doctor.bilibili_access_payload("bad-id")
+    assert payload["event"] == "bilibili_access_doctor"
+    assert payload["required_action"] == "provide_valid_video_id"
+    assert payload["health_status"] == "warn"
+    assert "Bilibili" in payload["error"]
+
+
 def test_instagram_payload_reports_ocr_route(monkeypatch):
     monkeypatch.setattr(doctor, "command", lambda name: f"/tmp/{name}")
     monkeypatch.setattr(doctor, "_command_ready", lambda name, package=None: (True, {"status": "ok", "category": "ready", "output": name, "hint": None}))

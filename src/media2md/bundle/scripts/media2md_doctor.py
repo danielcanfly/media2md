@@ -54,7 +54,8 @@ def command(name: str) -> str | None:
 
 
 def _command_ready(name: str, *, package: str | None = None) -> tuple[bool, dict[str, Any]]:
-    probe = probe_command(name, package=package or name)
+    args = ("--help",) if name == "mlx_whisper" else ("-version",) if name == "ffmpeg" else ("--version",)
+    probe = probe_command(name, args=args, package=package or name)
     return probe.ok, {
         "status": probe.status,
         "category": health_category(probe.status),
@@ -565,6 +566,135 @@ def tiktok_access_payload(video_id: str, creator: str, *, transcription_smoke_te
     return payload
 
 
+def bilibili_access_payload(video_id: str, *, transcription_smoke_test: bool = False) -> dict[str, Any]:
+    if not re.fullmatch(r"BV[A-Za-z0-9]{10}", video_id):
+        payload = {
+            "event": "bilibili_access_doctor",
+            "provider": "bilibili",
+            "pipeline_ready": False,
+            "fully_ready": False,
+            "error_code": "invalid_video_id",
+            "error": f"Invalid Bilibili video ID: {video_id}",
+            "retryable": False,
+            "action_required": True,
+            "required_action": "provide_valid_video_id",
+            "guidance": ["Retry with a valid Bilibili BV video ID or URL."],
+        }
+        return _attach_health(payload, status="warn", message=payload["error"])
+    ffmpeg = command("ffmpeg")
+    whisper = command("mlx_whisper")
+    ffmpeg_ready, ffmpeg_probe = _command_ready("ffmpeg", package="ffmpeg")
+    whisper_ready, whisper_probe = _command_ready("mlx_whisper", package="mlx-whisper")
+    transcription = _transcription_probe(whisper, ffmpeg, smoke_test=transcription_smoke_test)
+    payload = {
+        "event": "bilibili_access_doctor",
+        "provider": "bilibili",
+        "url": f"https://www.bilibili.com/video/{video_id}",
+        "metadata_ready": False,
+        "caption_ready": False,
+        "caption_language": None,
+        "audio_download_ready": False,
+        "audio_download_strategy": None,
+        "audio_strategy_results": [],
+        "download_ready": False,
+        "pipeline_strategy": None,
+        "pipeline_ready": False,
+        "pipeline_readiness": "not_ready",
+        "pipeline_end_to_end_verified": False,
+        "fully_ready": False,
+        "error": None,
+        "error_code": None,
+        "retryable": None,
+        "action_required": False,
+        "required_action": None,
+        "ffmpeg_ready": bool(ffmpeg_ready),
+        "ffmpeg_command_probe": ffmpeg_probe,
+        "mlx_whisper_command_probe": whisper_probe,
+        **transcription,
+    }
+    payload["transcription_ready"] = bool(payload["transcription_cli_ready"])
+    payload["ffmpeg_ready_probe"] = bool(ffmpeg_ready)
+    payload["transcription_binary_ready_probe"] = bool(whisper_ready)
+    try:
+        from generic_media import inspect_bilibili_metadata, try_bilibili_captions, download_bilibili_audio
+    except Exception as exc:
+        payload.update(
+            error=str(exc)[-3000:],
+            error_code="missing_runtime_dependency",
+            retryable=False,
+            action_required=True,
+            required_action="install_provider_extra",
+            guidance=provider_access_guidance("bilibili", error_code="missing_dependency", required_action="install_provider_extra"),
+        )
+        return _attach_health(payload, status="warn", message=payload["error"])
+
+    try:
+        metadata = inspect_bilibili_metadata(payload["url"], video_id)
+    except Exception as exc:
+        message = str(exc)
+        payload.update(error=message[-4000:], error_code="extractor_error", retryable=True)
+        if "missing_dependency" in message.lower():
+            payload["action_required"] = True
+            payload["required_action"] = "install_provider_extra"
+            payload["guidance"] = provider_access_guidance("bilibili", error_code="missing_dependency", required_action="install_provider_extra")
+            return _attach_health(payload, status="warn", message=payload["error"])
+        return _attach_health(payload, status="error", message=payload["error"])
+
+    payload["metadata_ready"] = True
+    payload["duration_seconds"] = metadata.get("duration")
+    payload["metadata_source"] = metadata.get("_media2md_metadata_source", "bilibili-api")
+
+    try:
+        text, language = try_bilibili_captions(payload["url"], video_id)
+    except Exception as exc:
+        payload["caption_probe_error"] = str(exc)[-3000:]
+        text, language = None, None
+    if text:
+        payload["caption_ready"] = True
+        payload["caption_language"] = language
+        payload["download_ready"] = True
+        payload["pipeline_strategy"] = "bilibili_captions"
+        payload["pipeline_ready"] = True
+        payload["pipeline_readiness"] = "verified_caption_path"
+        payload["pipeline_end_to_end_verified"] = True
+        payload["fully_ready"] = True
+        return _attach_health(payload, status="ok", message="Bilibili caption-first pipeline is ready")
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="media2md-bilibili-doctor-") as temp:
+            work = Path(temp)
+            media, strategy, used_auth, attempts = download_bilibili_audio(payload["url"], work, video_id)
+            payload["audio_download_ready"] = media.is_file()
+            payload["audio_download_strategy"] = strategy
+            payload["audio_used_auth"] = used_auth
+            payload["audio_strategy_results"] = attempts
+    except Exception as exc:
+        payload.update(error=str(exc)[-4000:], error_code="extractor_error", retryable=True)
+        return _attach_health(payload, status="error", message=payload["error"])
+
+    payload["download_ready"] = bool(payload["audio_download_ready"])
+    payload["pipeline_strategy"] = "local_whisper"
+    payload["pipeline_ready"] = bool(
+        payload["metadata_ready"] and payload["audio_download_ready"]
+        and payload["transcription_cli_ready"] and payload["ffmpeg_ready"]
+    )
+    if payload["pipeline_ready"]:
+        if payload["transcription_smoke_tested"] and payload["transcription_smoke_ready"]:
+            payload["pipeline_readiness"] = "verified_with_local_transcription_smoke_test"
+            payload["pipeline_end_to_end_verified"] = True
+            payload["fully_ready"] = True
+        else:
+            payload["pipeline_readiness"] = "verified_download_path_not_end_to_end_transcribed"
+            payload["pipeline_end_to_end_verified"] = False
+            payload["fully_ready"] = False
+            payload["verification_note"] = "Run again with --transcription-smoke-test for a stronger local transcription check."
+    return _attach_health(
+        payload,
+        status="ok" if payload.get("fully_ready") else "warn" if payload.get("pipeline_ready") else "error",
+        message=payload.get("verification_note") or payload.get("error") or "Bilibili access doctor status",
+    )
+
+
 def render(payload: dict[str, Any], output: str, title: str) -> None:
     if output == "ndjson":
         print(json.dumps({"schema_version": 12, **payload}, ensure_ascii=False, sort_keys=True))
@@ -606,7 +736,8 @@ def main() -> int:
     browser_safety = sub.add_parser("browser-safety"); browser_safety.add_argument("--output", choices=("human", "ndjson"), default="human")
     youtube_access = sub.add_parser("youtube-access"); youtube_access.add_argument("--video-id", required=True); youtube_access.add_argument("--transcription-smoke-test", action="store_true"); youtube_access.add_argument("--output", choices=("human", "ndjson"), default="human")
     tiktok_access = sub.add_parser("tiktok-access"); tiktok_access.add_argument("--video-id", required=True); tiktok_access.add_argument("--creator", required=True); tiktok_access.add_argument("--transcription-smoke-test", action="store_true"); tiktok_access.add_argument("--output", choices=("human", "ndjson"), default="human")
-    allp = sub.add_parser("all"); allp.add_argument("--shortcode"); allp.add_argument("--youtube-video-id"); allp.add_argument("--tiktok-video-id"); allp.add_argument("--tiktok-creator"); allp.add_argument("--transcription-smoke-test", action="store_true"); allp.add_argument("--output", choices=("human", "ndjson"), default="human")
+    bilibili_access = sub.add_parser("bilibili-access"); bilibili_access.add_argument("--video-id", required=True); bilibili_access.add_argument("--transcription-smoke-test", action="store_true"); bilibili_access.add_argument("--output", choices=("human", "ndjson"), default="human")
+    allp = sub.add_parser("all"); allp.add_argument("--shortcode"); allp.add_argument("--youtube-video-id"); allp.add_argument("--tiktok-video-id"); allp.add_argument("--tiktok-creator"); allp.add_argument("--bilibili-video-id"); allp.add_argument("--transcription-smoke-test", action="store_true"); allp.add_argument("--output", choices=("human", "ndjson"), default="human")
     args = parser.parse_args(argv)
     if hasattr(args, "video_id") and str(args.video_id).startswith(sentinel): args.video_id = str(args.video_id)[len(sentinel):]
     if args.command == "youtube":
@@ -669,12 +800,24 @@ def main() -> int:
             data=raw,
         )
         render(payload, args.output, "TIKTOK_ACCESS_DOCTOR"); return 0 if raw.get("pipeline_ready") else 2
+    if args.command == "bilibili-access":
+        raw = bilibili_access_payload(args.video_id, transcription_smoke_test=args.transcription_smoke_test)
+        payload = doctor_event_payload(
+            event="bilibili_access_doctor",
+            section="bilibili_access",
+            status=raw.get("health_status", "error"),
+            message=str(raw.get("health_message") or raw.get("error") or "Bilibili access doctor status"),
+            data=raw,
+        )
+        render(payload, args.output, "BILIBILI_ACCESS_DOCTOR"); return 0 if raw.get("pipeline_ready") else 2
     payload: dict[str, Any] = {"event": "doctor_all", "youtube": youtube_environment_payload(), "instagram": instagram_payload(args.shortcode), "impersonation": impersonation_payload()}
     if args.youtube_video_id: payload["youtube_access"] = youtube_access_payload(args.youtube_video_id, transcription_smoke_test=args.transcription_smoke_test)
     if args.tiktok_video_id and args.tiktok_creator: payload["tiktok_access"] = tiktok_access_payload(args.tiktok_video_id, args.tiktok_creator, transcription_smoke_test=args.transcription_smoke_test)
+    if args.bilibili_video_id: payload["bilibili_access"] = bilibili_access_payload(args.bilibili_video_id, transcription_smoke_test=args.transcription_smoke_test)
     checks = [payload["youtube"].get("ready"), payload["instagram"].get("ready"), payload["impersonation"].get("ready")]
     if "youtube_access" in payload: checks.append(payload["youtube_access"].get("pipeline_ready"))
     if "tiktok_access" in payload: checks.append(payload["tiktok_access"].get("pipeline_ready"))
+    if "bilibili_access" in payload: checks.append(payload["bilibili_access"].get("pipeline_ready"))
     payload["ready"] = all(bool(item) for item in checks)
     doctor_results = [
         HealthResult(status=payload["instagram"].get("health_status", "error"), message=str(payload["instagram"].get("health_message") or "instagram")),
@@ -684,6 +827,8 @@ def main() -> int:
         doctor_results.append(HealthResult(status=payload["youtube_access"].get("health_status", "error"), message=str(payload["youtube_access"].get("health_message") or "youtube_access")))
     if "tiktok_access" in payload:
         doctor_results.append(HealthResult(status=payload["tiktok_access"].get("health_status", "error"), message=str(payload["tiktok_access"].get("health_message") or "tiktok_access")))
+    if "bilibili_access" in payload:
+        doctor_results.append(HealthResult(status=payload["bilibili_access"].get("health_status", "error"), message=str(payload["bilibili_access"].get("health_message") or "bilibili_access")))
     payload["health"] = summarize_health(doctor_results)
     _attach_health(payload, status="ok" if payload["ready"] else payload["health"]["status"], message="Combined doctor status")
     payload["schema"] = "media2md.cli.doctor/v1"
@@ -697,6 +842,10 @@ def main() -> int:
         *(
             [make_section("tiktok_access", status=payload["tiktok_access"].get("health_status", "error"), message=payload["tiktok_access"].get("health_message"), data=payload["tiktok_access"]).as_dict()]
             if "tiktok_access" in payload else []
+        ),
+        *(
+            [make_section("bilibili_access", status=payload["bilibili_access"].get("health_status", "error"), message=payload["bilibili_access"].get("health_message"), data=payload["bilibili_access"]).as_dict()]
+            if "bilibili_access" in payload else []
         ),
     ]
     render(payload, args.output, "MEDIA2MD_DOCTOR"); return 0 if payload["ready"] else 2
