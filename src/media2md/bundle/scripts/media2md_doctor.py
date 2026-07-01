@@ -39,7 +39,7 @@ from media2md_paths import command_path
 from media2md_ytdlp import (
     classify_access_error, doctor_payload as youtube_environment_payload,
     browser_safety_payload, impersonation_args, impersonation_targets, po_token_providers, youtube_access_args,
-    youtube_audio_settings, youtube_download_strategies,
+    provider_transcription_settings, youtube_audio_settings, youtube_download_strategies,
 )
 from media2md_youtube_session import configured_youtube_profile, youtube_auth_args, verify_youtube_session
 from media2md_runtime import safe_artifact_stem
@@ -647,24 +647,34 @@ def bilibili_access_payload(video_id: str, *, transcription_smoke_test: bool = F
     payload["metadata_ready"] = True
     payload["duration_seconds"] = metadata.get("duration")
     payload["metadata_source"] = metadata.get("_media2md_metadata_source", "bilibili-api")
+    settings = provider_transcription_settings("bilibili")
+    payload["caption_first_enabled"] = bool(settings.get("caption_first", True))
+    payload["long_video_threshold_seconds"] = int(settings["long_video_threshold_seconds"])
+    payload["chunk_seconds"] = int(settings["chunk_seconds"])
+    payload["chunk_model"] = str(settings["chunk_model"])
 
-    try:
-        text, language = try_bilibili_captions(payload["url"], video_id)
-    except Exception as exc:
-        payload["caption_probe_error"] = str(exc)[-3000:]
-        text, language = None, None
-    if text:
-        payload["caption_ready"] = True
-        payload["caption_language"] = language
-        payload["download_ready"] = True
-        payload["pipeline_strategy"] = "bilibili_captions"
-        payload["pipeline_ready"] = True
-        payload["pipeline_readiness"] = "verified_caption_path"
-        payload["pipeline_end_to_end_verified"] = True
-        payload["fully_ready"] = True
-        payload["live_probe_ready"] = True
-        payload["degraded"] = False
-        return _attach_health(payload, status="ok", message="Bilibili caption-first pipeline is ready")
+    text = None
+    language = None
+    if payload["caption_first_enabled"]:
+        try:
+            text, language = try_bilibili_captions(payload["url"], video_id)
+        except Exception as exc:
+            payload["caption_probe_error"] = str(exc)[-3000:]
+            text, language = None, None
+        if text:
+            payload["caption_ready"] = True
+            payload["caption_language"] = language
+            payload["download_ready"] = True
+            payload["pipeline_strategy"] = "bilibili_captions"
+            payload["pipeline_ready"] = True
+            payload["pipeline_readiness"] = "verified_caption_path"
+            payload["pipeline_end_to_end_verified"] = True
+            payload["fully_ready"] = True
+            payload["live_probe_ready"] = True
+            payload["degraded"] = False
+            return _attach_health(payload, status="ok", message="Bilibili caption-first pipeline is ready")
+    else:
+        payload["caption_probe_result"] = "disabled"
 
     try:
         with tempfile.TemporaryDirectory(prefix="media2md-bilibili-doctor-") as temp:
@@ -679,7 +689,11 @@ def bilibili_access_payload(video_id: str, *, transcription_smoke_test: bool = F
         return _attach_health(payload, status="error", message=payload["error"])
 
     payload["download_ready"] = bool(payload["audio_download_ready"])
-    payload["pipeline_strategy"] = "local_whisper"
+    payload["pipeline_strategy"] = (
+        "local_whisper_chunked"
+        if payload.get("duration_seconds") and float(payload["duration_seconds"]) >= float(payload["long_video_threshold_seconds"])
+        else "local_whisper"
+    )
     payload["pipeline_ready"] = bool(
         payload["metadata_ready"] and payload["audio_download_ready"]
         and payload["transcription_cli_ready"] and payload["ffmpeg_ready"]

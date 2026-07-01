@@ -72,6 +72,12 @@
     },
     "tiktok": {
       "impersonate": "auto"
+    },
+    "bilibili": {
+      "caption_first": true,
+      "long_video_threshold_seconds": 2700,
+      "chunk_seconds": 1800,
+      "chunk_model": "mlx-community/whisper-large-v3-turbo"
     }
   },
   "updates": {

@@ -31,6 +31,10 @@ class _Args:
     youtube_chunk_minutes = None
     youtube_chunk_model = None
     tiktok_impersonate = None
+    bilibili_caption_first = None
+    bilibili_long_video_threshold_minutes = None
+    bilibili_chunk_minutes = None
+    bilibili_chunk_model = None
     update_check_every_days = None
     update_check_on_use = None
 
@@ -112,7 +116,7 @@ def test_settings_payload_is_minimal_projection():
             "ui_locale": "en",
             "markdown_locale": "ja",
             "defaults": {"sync": {}},
-            "providers": {"youtube": {"chunk_model": "small"}},
+            "providers": {"youtube": {"chunk_model": "small"}, "bilibili": {"caption_first": False}},
             "updates": {"enabled": True},
         }
     )
@@ -123,6 +127,7 @@ def test_settings_payload_is_minimal_projection():
     assert payload["sections"][0]["name"] == "localization"
     assert payload["markdown_locale"] == "ja"
     assert payload["providers"]["youtube"]["chunk_model"] == "small"
+    assert payload["providers"]["bilibili"]["caption_first"] is False
 
 
 def test_apply_settings_updates_handles_provider_fields():
@@ -135,6 +140,10 @@ def test_apply_settings_updates_handles_provider_fields():
     args.youtube_long_video_threshold_minutes = 7
     args.youtube_chunk_minutes = 3
     args.tiktok_impersonate = "chrome"
+    args.bilibili_caption_first = False
+    args.bilibili_long_video_threshold_minutes = 11
+    args.bilibili_chunk_minutes = 4
+    args.bilibili_chunk_model = "bili-model"
     args.update_check_every_days = 2
     args.update_check_on_use = True
     config = apply_settings_updates({}, args)
@@ -146,6 +155,10 @@ def test_apply_settings_updates_handles_provider_fields():
     assert config["providers"]["youtube"]["long_video_threshold_seconds"] == 420
     assert config["providers"]["youtube"]["chunk_seconds"] == 180
     assert config["providers"]["tiktok"]["impersonate"] == "chrome"
+    assert config["providers"]["bilibili"]["caption_first"] is False
+    assert config["providers"]["bilibili"]["long_video_threshold_seconds"] == 660
+    assert config["providers"]["bilibili"]["chunk_seconds"] == 240
+    assert config["providers"]["bilibili"]["chunk_model"] == "bili-model"
     assert config["updates"]["check_every_minutes"] == 2880
     assert config["updates"]["check_on_use"] is True
     assert config["updates"]["enabled"] is True
@@ -168,6 +181,7 @@ def test_agent_status_payload_keeps_schema_version():
     assert payload["provider_capabilities"]["instagram"]["default_backend"] == "auto"
     assert payload["provider_capabilities"]["tiktok"]["extra"] == "tiktok"
     assert payload["provider_capabilities"]["bilibili"]["extra"] == "bilibili"
+    assert "long_video_threshold_seconds" in payload["provider_capabilities"]["bilibili"]["settings"]
     assert payload["provider_capabilities"]["youtube"]["capabilities"]["creator_sync"] is True
     assert "creator refresh-catalog" in payload["provider_capabilities"]["youtube"]["commands"]["write"]
 

@@ -15,9 +15,17 @@ def test_provider_capability_matrix_includes_backend_and_capability_metadata():
     payload = provider_capability_matrix()
     assert payload["instagram"]["backends"] == ["gallery-dl", "instaloader"]
     assert payload["instagram"]["default_backend"] == "auto"
+    assert payload["instagram"]["settings"] == ["backend", "catalog_surface"]
     assert payload["youtube"]["extra"] == "youtube"
+    assert "caption_first" in payload["youtube"]["settings"]
     assert payload["tiktok"]["capabilities"] == {
         "single_media": True,
         "creator_sync": True,
         "batch_drain": True,
     }
+    assert payload["bilibili"]["settings"] == [
+        "long_video_threshold_seconds",
+        "chunk_seconds",
+        "chunk_model",
+        "caption_first",
+    ]

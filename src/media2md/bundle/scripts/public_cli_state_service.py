@@ -101,6 +101,40 @@ def creator_catalog_metadata(
     return metadata
 
 
+def provider_settings_projection(config: dict[str, Any]) -> dict[str, Any]:
+    providers = dict(config.get("providers", {}))
+    instagram = dict(providers.get("instagram", {}))
+    youtube = dict(providers.get("youtube", {}))
+    tiktok = dict(providers.get("tiktok", {}))
+    bilibili = dict(providers.get("bilibili", {}))
+    return {
+        "instagram": {
+            "backend": instagram.get("backend", "auto"),
+            "catalog_surface": instagram.get("catalog_surface"),
+        },
+        "youtube": {
+            "js_runtime": youtube.get("js_runtime", "auto"),
+            "caption_first": bool(youtube.get("caption_first", True)),
+            "caption_languages": list(youtube.get("caption_languages", ["zh-Hant", "zh-Hans", "zh", "en.*"])),
+            "sponsor_filter": youtube.get("sponsor_filter", "conservative"),
+            "audio_download_strategies": list(youtube.get("audio_download_strategies", [])),
+            "long_video_threshold_seconds": int(youtube.get("long_video_threshold_seconds", 2700) or 2700),
+            "chunk_seconds": int(youtube.get("chunk_seconds", 1800) or 1800),
+            "chunk_model": youtube.get("chunk_model", "mlx-community/whisper-large-v3-turbo"),
+            "catalog_surfaces": list(youtube.get("catalog_surfaces", ["videos", "shorts"])),
+        },
+        "tiktok": {
+            "impersonate": tiktok.get("impersonate", "auto"),
+        },
+        "bilibili": {
+            "caption_first": bool(bilibili.get("caption_first", True)),
+            "long_video_threshold_seconds": int(bilibili.get("long_video_threshold_seconds", 2700) or 2700),
+            "chunk_seconds": int(bilibili.get("chunk_seconds", 1800) or 1800),
+            "chunk_model": bilibili.get("chunk_model", "mlx-community/whisper-large-v3-turbo"),
+        },
+    }
+
+
 def render_creator_status(
     args,
     *,
@@ -317,6 +351,7 @@ def print_system_status(payload: dict[str, Any]) -> None:
 
 
 def settings_payload(config: dict[str, Any]) -> dict[str, Any]:
+    providers = provider_settings_projection(config)
     payload = make_output_model(
         event="settings",
         schema="media2md.cli.settings/v1",
@@ -336,7 +371,7 @@ def settings_payload(config: dict[str, Any]) -> dict[str, Any]:
                 "providers",
                 status="ok",
                 message="Provider settings projection",
-                data={"providers": config.get("providers", {})},
+                data={"providers": providers},
             ),
             make_section(
                 "updates",
@@ -350,7 +385,7 @@ def settings_payload(config: dict[str, Any]) -> dict[str, Any]:
             "ui_locale": config.get("ui_locale", "en"),
             "markdown_locale": config.get("markdown_locale", "en"),
             "defaults": config.get("defaults", {}),
-            "providers": config.get("providers", {}),
+            "providers": providers,
             "updates": config.get("updates", {}),
         },
     )
@@ -399,6 +434,18 @@ def apply_settings_updates(config: dict[str, Any], args) -> dict[str, Any]:
         config.setdefault("providers", {}).setdefault("youtube", {})["chunk_model"] = args.youtube_chunk_model
     if getattr(args, "tiktok_impersonate", None):
         config.setdefault("providers", {}).setdefault("tiktok", {})["impersonate"] = args.tiktok_impersonate
+    if getattr(args, "bilibili_caption_first", None) is not None:
+        config.setdefault("providers", {}).setdefault("bilibili", {})["caption_first"] = args.bilibili_caption_first
+    if getattr(args, "bilibili_long_video_threshold_minutes", None) is not None:
+        config.setdefault("providers", {}).setdefault("bilibili", {})["long_video_threshold_seconds"] = max(
+            60, int(args.bilibili_long_video_threshold_minutes * 60)
+        )
+    if getattr(args, "bilibili_chunk_minutes", None) is not None:
+        config.setdefault("providers", {}).setdefault("bilibili", {})["chunk_seconds"] = max(
+            60, int(args.bilibili_chunk_minutes * 60)
+        )
+    if getattr(args, "bilibili_chunk_model", None):
+        config.setdefault("providers", {}).setdefault("bilibili", {})["chunk_model"] = args.bilibili_chunk_model
     if args.update_check_every_days is not None:
         config.setdefault("updates", {})["check_every_minutes"] = int(args.update_check_every_days * 1440)
     if args.update_check_on_use is not None:

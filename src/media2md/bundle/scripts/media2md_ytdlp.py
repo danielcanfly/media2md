@@ -220,6 +220,29 @@ def youtube_audio_settings(config: dict[str, Any] | None = None) -> dict[str, An
     }
 
 
+def provider_transcription_settings(provider: str, config: dict[str, Any] | None = None) -> dict[str, Any]:
+    config = config or load_config()
+    chosen = str(provider or "").strip().lower()
+    if chosen == "youtube":
+        settings = youtube_audio_settings(config)
+        settings["caption_first"] = bool(config.get("providers", {}).get("youtube", {}).get("caption_first", True))
+        return settings
+    if chosen == "bilibili":
+        bilibili = config.get("providers", {}).get("bilibili", {})
+        return {
+            "caption_first": bool(bilibili.get("caption_first", True)),
+            "long_video_threshold_seconds": max(60, int(bilibili.get("long_video_threshold_seconds") or 2700)),
+            "chunk_seconds": max(60, int(bilibili.get("chunk_seconds") or 1800)),
+            "chunk_model": str(bilibili.get("chunk_model") or "mlx-community/whisper-large-v3-turbo"),
+        }
+    return {
+        "caption_first": True,
+        "long_video_threshold_seconds": 2700,
+        "chunk_seconds": 1800,
+        "chunk_model": "mlx-community/whisper-large-v3-turbo",
+    }
+
+
 def youtube_download_strategies(
     auth_args: list[str] | None = None,
     config: dict[str, Any] | None = None,

@@ -25,6 +25,7 @@ class ProviderMetadata:
     command_capabilities: ProviderCommandCapabilities
     extra: str | None = None
     default_backend: str | None = None
+    settings: tuple[str, ...] = ()
 
 
 _CATALOG: tuple[ProviderMetadata, ...] = (
@@ -39,6 +40,7 @@ _CATALOG: tuple[ProviderMetadata, ...] = (
         ),
         extra="instagram",
         default_backend="auto",
+        settings=("backend", "catalog_surface"),
     ),
     ProviderMetadata(
         name="youtube",
@@ -50,6 +52,20 @@ _CATALOG: tuple[ProviderMetadata, ...] = (
             confirmation=("creator delete",),
         ),
         extra="youtube",
+        settings=(
+            "js_runtime",
+            "allow_remote_ejs",
+            "po_token_provider",
+            "pot_browser_path",
+            "caption_first",
+            "caption_languages",
+            "sponsor_filter",
+            "audio_download_strategies",
+            "long_video_threshold_seconds",
+            "chunk_seconds",
+            "chunk_model",
+            "catalog_surfaces",
+        ),
     ),
     ProviderMetadata(
         name="tiktok",
@@ -61,6 +77,7 @@ _CATALOG: tuple[ProviderMetadata, ...] = (
             confirmation=("creator delete",),
         ),
         extra="tiktok",
+        settings=("impersonate",),
     ),
     ProviderMetadata(
         name="bilibili",
@@ -72,6 +89,12 @@ _CATALOG: tuple[ProviderMetadata, ...] = (
             confirmation=("creator delete",),
         ),
         extra="bilibili",
+        settings=(
+            "long_video_threshold_seconds",
+            "chunk_seconds",
+            "chunk_model",
+            "caption_first",
+        ),
     ),
 )
 
@@ -110,6 +133,7 @@ def provider_capability_matrix() -> dict[str, dict[str, object]]:
             "backends": list(item.backends),
             "default_backend": item.default_backend,
             "extra": item.extra,
+            "settings": list(item.settings),
             "capabilities": {
                 "single_media": item.capabilities.single_media,
                 "creator_sync": item.capabilities.creator_sync,

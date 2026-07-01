@@ -25,8 +25,8 @@ if sys.path and sys.path[0] == _SCRIPT_DIR:
 
 from media2md_paths import require_command
 from media2md_urls import detect_provider as detect_provider_from_value, normalize_media
-from media2md_ytdlp import (classify_access_error, impersonation_args, youtube_access_args, youtube_runtime_args,
-    youtube_audio_settings, youtube_download_strategies)
+from media2md_ytdlp import (classify_access_error, impersonation_args, provider_transcription_settings,
+    youtube_access_args, youtube_runtime_args, youtube_audio_settings, youtube_download_strategies)
 from media2md_youtube_session import youtube_auth_args, verify_youtube_session
 from media2md_ocr import ocr_install_extra, perform_ocr
 from media2md_runtime import (
@@ -1657,6 +1657,11 @@ def youtube_caption_settings() -> tuple[bool, list[str]]:
     return enabled, langs
 
 
+def provider_caption_first_enabled(provider: str) -> bool:
+    settings = provider_transcription_settings(provider)
+    return bool(settings.get("caption_first", True))
+
+
 def parse_vtt_text(raw: str) -> str:
     entries: list[str] = []
     buffer: list[str] = []
@@ -1995,12 +2000,19 @@ def _whisper_command(media: Path, output_dir: Path, output_name: str, model: str
     ]
 
 
-def transcribe_audio(media: Path, transcript_dir: Path, external_id: str, hinted_duration: Any = None) -> dict[str, Any]:
-    settings = youtube_audio_settings()
+def transcribe_audio(
+    media: Path,
+    transcript_dir: Path,
+    external_id: str,
+    hinted_duration: Any = None,
+    *,
+    provider: str = "youtube",
+) -> dict[str, Any]:
+    settings = provider_transcription_settings(provider)
     duration = _duration_seconds(media, hinted_duration)
     threshold = int(settings["long_video_threshold_seconds"])
     chunk_seconds = int(settings["chunk_seconds"])
-    artifact_stem = safe_artifact_stem("youtube", external_id)
+    artifact_stem = safe_artifact_stem(provider, external_id)
     transcript_dir.mkdir(parents=True, exist_ok=True)
     if duration < threshold:
         transcript_path = transcript_dir / f"{artifact_stem}.txt"
@@ -2112,7 +2124,7 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
     provider = str(row["provider"])
     external_id = str(row["external_id"])
     media_type = (str(row["media_type"]) if "media_type" in row.keys() and row["media_type"] else infer_media_type(provider, row["source_url"]))
-    threshold = int(load_config().get("providers", {}).get("youtube", {}).get("long_video_threshold_seconds", 2700))
+    threshold = int(provider_transcription_settings(provider)["long_video_threshold_seconds"])
     item_class = processing_class(media_type, row["duration_seconds"], long_threshold_seconds=threshold)
     artifact_stem = safe_artifact_stem(provider, external_id)
     raw_creator = str(row["creator"] if "creator" in row.keys() else row["handle"])
@@ -2163,7 +2175,7 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
                 conn.commit()
             else:
                 caption_probe_result = "disabled" if not youtube_caption_settings()[0] else "miss"
-        elif provider == "bilibili":
+        elif provider == "bilibili" and provider_caption_first_enabled("bilibili"):
             text, caption_language = try_bilibili_captions(canonical_source, external_id)
             if text:
                 caption_probe_result = "hit"
@@ -2174,6 +2186,8 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
                 conn.commit()
             else:
                 caption_probe_result = "miss"
+        elif provider == "bilibili":
+            caption_probe_result = "disabled"
 
         if post_ocr_mode:
             text = ""
@@ -2272,7 +2286,13 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
                 chunk_seconds_used = None
             else:
                 try:
-                    result = transcribe_audio(media, transcript_dir, external_id, row["duration_seconds"])
+                    result = transcribe_audio(
+                        media,
+                        transcript_dir,
+                        external_id,
+                        row["duration_seconds"],
+                        provider=provider,
+                    )
                     text = str(result["text"])
                     transcription_source = str(result["source"])
                     transcription_model = str(result["model"])

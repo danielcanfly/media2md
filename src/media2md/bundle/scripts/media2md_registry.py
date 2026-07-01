@@ -173,6 +173,16 @@ def youtube_long_threshold_seconds() -> int:
         return 2700
 
 
+def provider_long_threshold_seconds(provider: str) -> int:
+    config = load_json(CONFIG, {})
+    chosen = str(provider or "").strip().lower()
+    key = "bilibili" if chosen == "bilibili" else "youtube"
+    try:
+        return max(60, int(config.get("providers", {}).get(key, {}).get("long_video_threshold_seconds", 2700)))
+    except (TypeError, ValueError):
+        return 2700
+
+
 def youtube_catalog_surfaces() -> tuple[str, ...]:
     config = load_json(CONFIG, {})
     raw = config.get("providers", {}).get("youtube", {}).get("catalog_surfaces", ["videos", "shorts"])
@@ -971,7 +981,7 @@ def _normalize_tiktok_cursor_item(raw: dict[str, Any], handle_hint: str) -> dict
         "duration_seconds": duration,
         "media_type": "tiktok_video",
         "processing_class": processing_class(
-            "tiktok_video", duration, long_threshold_seconds=youtube_long_threshold_seconds()
+            "tiktok_video", duration, long_threshold_seconds=provider_long_threshold_seconds("tiktok")
         ),
         "catalog_surface": None,
     }
@@ -1665,7 +1675,7 @@ def _extract_catalog_once(
         return _extract_bilibili_catalog(source_url, limit, start)
     surface = youtube_surface_from_url(source_url) if provider == "youtube" else None
     surface_media_type = media_type_for_youtube_surface(surface) if surface else None
-    threshold = youtube_long_threshold_seconds()
+    threshold = provider_long_threshold_seconds(provider)
     base = [command("yt-dlp")]
     if provider == "youtube":
         base += youtube_runtime_args()
@@ -1794,7 +1804,7 @@ def _extract_bilibili_catalog(source_url: str, limit: int | None, start: int | N
             "pause_reason": "live_refresh_rate_limited",
         }
         items: list[dict[str, Any]] = []
-        threshold = youtube_long_threshold_seconds()
+        threshold = provider_long_threshold_seconds(provider)
         for raw in entries:
             if not isinstance(raw, dict):
                 continue
@@ -1833,7 +1843,7 @@ def _extract_bilibili_catalog(source_url: str, limit: int | None, start: int | N
         "pause_reason": None,
     }
     items: list[dict[str, Any]] = []
-    threshold = youtube_long_threshold_seconds()
+    threshold = provider_long_threshold_seconds(provider)
     for raw in vlist:
         if not isinstance(raw, dict):
             continue
@@ -2076,7 +2086,7 @@ def upsert_catalog(
 ) -> dict[str, Any]:
     conn = connect()
     now = iso_now()
-    threshold = youtube_long_threshold_seconds()
+    threshold = provider_long_threshold_seconds(provider)
     external_id = str(meta.get("external_id") or requested_handle)
     discovered_handle = str(meta.get("handle") or requested_handle).lstrip("@")
     handle = requested_handle or discovered_handle or external_id
@@ -2936,7 +2946,7 @@ def _youtube_metadata_probe(external_id: str) -> dict[str, Any] | None:
 
 
 def hydrate_youtube_duration_classes(conn: sqlite3.Connection, creator_id: int, limit: int = 12) -> int:
-    threshold = youtube_long_threshold_seconds()
+    threshold = provider_long_threshold_seconds("youtube")
     rows = conn.execute(
         """SELECT id,external_id,media_type,duration_seconds FROM media
            WHERE creator_id=? AND is_current=1 AND media_type='youtube_video'
@@ -3036,6 +3046,7 @@ def _creator_run_summary(
     *, provider: str, handle: str, batches: int, processed: int,
     failures: int, status: str, remaining: int, output: str,
     markdown_root: Path | None = None, latest_markdown_path: str | None = None,
+    strategy_summary: dict[str, Any] | None = None,
 ) -> None:
     completed = max(0, processed - failures)
     primary_output_surface = None
@@ -3076,6 +3087,7 @@ def _creator_run_summary(
                 "latest_markdown_path": latest_markdown_path,
                 "markdown_root": str(markdown_root) if markdown_root else None,
                 "primary_output_surface": primary_output_surface,
+                "strategy_summary": dict(strategy_summary or {}),
             },
         )
 
@@ -3184,6 +3196,7 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
     durations: list[float] = []
     runtime_paused = False
     latest_markdown_path: str | None = None
+    strategy_summary: dict[str, int] = {}
 
     while True:
         if runtime_limit is not None and time.monotonic() - started >= runtime_limit:
@@ -3389,6 +3402,14 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
                 if len(durations) > 20:
                     durations = durations[-20:]
                 latest_markdown_path = _latest_markdown_path(provider, str(row["external_id"])) or latest_markdown_path
+                progress = _transcription_progress_payload(
+                    provider,
+                    str(row["creator"] if "creator" in row.keys() else row["handle"]),
+                    str(row["external_id"]),
+                )
+                if progress and progress.get("stage"):
+                    key = f"transcription_progress:{progress['stage']}"
+                    strategy_summary[key] = int(strategy_summary.get(key, 0)) + 1
 
             conn = connect()
             sync_generic_status_from_legacy(conn, provider, row["external_id"])
@@ -3519,6 +3540,7 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
                     remaining=_actual_creator_remaining(provider, handle), output=output,
                     markdown_root=_creator_markdown_root(provider, handle),
                     latest_markdown_path=latest_markdown_path,
+                    strategy_summary=strategy_summary,
                 )
                 return 0
 
@@ -3529,6 +3551,7 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
                     remaining=_actual_creator_remaining(provider, handle), output=output,
                     markdown_root=_creator_markdown_root(provider, handle),
                     latest_markdown_path=latest_markdown_path,
+                    strategy_summary=strategy_summary,
                 )
                 return 2
 
@@ -3554,6 +3577,7 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
         remaining=remaining, output=output,
         markdown_root=_creator_markdown_root(provider, handle),
         latest_markdown_path=latest_markdown_path,
+        strategy_summary=strategy_summary,
     )
     return 0 if failures == 0 else 2
 

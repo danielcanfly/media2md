@@ -82,11 +82,14 @@ def test_bilibili_creator_normalization_supports_space_url_and_mid():
 
     space = normalize_creator("bilibili", "https://space.bilibili.com/2")
     bare = normalize_creator("bilibili", "2")
+    with_query = normalize_creator("bilibili", "https://space.bilibili.com/2?spm_id_from=333.337.0.0")
 
     assert space.canonical_url == "https://space.bilibili.com/2"
     assert space.creator == "2"
     assert bare.canonical_url == "https://space.bilibili.com/2"
     assert bare.creator == "2"
+    assert with_query.canonical_url == "https://space.bilibili.com/2"
+    assert with_query.creator == "2"
 
 
 def test_bundled_bilibili_media_type_support():

@@ -30,6 +30,7 @@ def test_creator_run_summary_ndjson_uses_shared_cli_contract():
         output="ndjson",
         markdown_root=Path("/tmp/media2md/markdown/youtube/creator-name/videos"),
         latest_markdown_path="/tmp/media2md/markdown/youtube/creator-name/videos/example.md",
+        strategy_summary={"transcription_progress:chunked": 2},
     )
     assert payload["event"] == "creator_run_completed"
     assert payload["schema"] == "media2md.cli.creator_run_completed/v1"
@@ -38,6 +39,7 @@ def test_creator_run_summary_ndjson_uses_shared_cli_contract():
     assert payload["run_status"] == "completed"
     assert payload["provider"] == "youtube"
     assert payload["creator"] == "creator-name"
+    assert payload["strategy_summary"] == {"transcription_progress:chunked": 2}
 
 
 def test_registry_emit_cli_event_uses_shared_contract():
