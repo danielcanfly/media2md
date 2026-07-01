@@ -24,12 +24,20 @@ def registry_rows(registry_db: Path, *, include_youtube_totals: bool) -> list[di
         return []
     conn = sqlite3.connect(registry_db)
     conn.row_factory = sqlite3.Row
+    creator_columns = {row[1] for row in conn.execute("PRAGMA table_info(creators)")}
+    has_sync_resilience = {"sync_incomplete", "sync_pause_reason", "pagination_backend"} <= creator_columns
+    sync_resilience_select = (
+        "c.sync_incomplete,c.sync_pause_reason,c.pagination_backend,"
+        if has_sync_resilience
+        else "0 AS sync_incomplete,NULL AS sync_pause_reason,NULL AS pagination_backend,"
+    )
     if include_youtube_totals:
         query = """SELECT c.provider,c.handle,c.source_url,c.current_total,c.current_total_exact,
             c.youtube_video_total,c.youtube_video_total_exact,c.youtube_shorts_total,c.youtube_shorts_total_exact,
             c.youtube_streams_total,c.youtube_streams_total_exact,c.last_sync_mode,c.last_sync_at,c.last_full_sync_at,
             c.last_full_exact_total,c.last_full_exact_at,c.last_full_youtube_video_total,
             c.last_full_youtube_shorts_total,c.last_full_youtube_streams_total,
+            """ + sync_resilience_select + """
             SUM(CASE WHEN m.is_current=1 THEN 1 ELSE 0 END) tracked,
             SUM(CASE WHEN m.is_current=1 AND m.status='completed' THEN 1 ELSE 0 END) completed,
             SUM(CASE WHEN m.is_current=1 AND m.status NOT IN ('completed','skipped') THEN 1 ELSE 0 END) remaining,
@@ -39,6 +47,7 @@ def registry_rows(registry_db: Path, *, include_youtube_totals: bool) -> list[di
             FROM creators c LEFT JOIN media m ON m.creator_id=c.id GROUP BY c.id ORDER BY c.provider,lower(c.handle)"""
     else:
         query = """SELECT c.provider,c.handle,c.source_url,c.current_total,c.current_total_exact,c.last_sync_mode,c.last_sync_at,c.last_full_sync_at,
+            """ + sync_resilience_select + """
             SUM(CASE WHEN m.is_current=1 THEN 1 ELSE 0 END) tracked,
             SUM(CASE WHEN m.is_current=1 AND m.status='completed' THEN 1 ELSE 0 END) completed,
             SUM(CASE WHEN m.is_current=1 AND m.status NOT IN ('completed','skipped') THEN 1 ELSE 0 END) remaining,
@@ -80,6 +89,9 @@ def creator_catalog_metadata(
     if row.get("provider") == "bilibili":
         metadata["catalog_surface"] = "videos"
         metadata["catalog_surfaces"] = ["videos"]
+        metadata["pagination_backend"] = row.get("pagination_backend")
+        metadata["sync_incomplete"] = bool(row.get("sync_incomplete"))
+        metadata["sync_pause_reason"] = row.get("sync_pause_reason")
         return metadata
     if row.get("provider") != "youtube":
         return metadata
@@ -156,6 +168,12 @@ def render_creator_status(
                     f"catalog_surfaces={','.join(metadata['catalog_surfaces'])} "
                     f"url={metadata.get('source_url') or '-'}"
                 )
+                if row["provider"] == "bilibili":
+                    print(
+                        f"  SYNC_RESILIENCE pagination_backend={metadata.get('pagination_backend') or '-'} "
+                        f"sync_incomplete={str(bool(metadata.get('sync_incomplete'))).lower()} "
+                        f"pause_reason={metadata.get('sync_pause_reason') or '-'}"
+                    )
             else:
                 print(f"  SOURCE url={metadata.get('source_url') or '-'}")
             if include_batch_limits and normalize_batch_sizes is not None:

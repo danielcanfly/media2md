@@ -68,6 +68,28 @@ def prepare_catalog_for_creator_run(
             emit_call(payload, output)
         return 0
 
+    usable_bilibili_catalog = provider == "bilibili" and existing_row is not None and tracked > 0
+    if usable_bilibili_catalog and _is_exact(existing_row):
+        payload = {
+            "event": "auto_sync_skipped",
+            "provider": "bilibili",
+            "creator": normalized_creator,
+            "reason": "exact_catalog_available",
+            "using_cached_catalog": True,
+            "tracked": tracked,
+            "current_total_exact": True,
+        }
+        if output == "human":
+            print(
+                "AUTO_SYNC_SKIPPED provider=bilibili "
+                "reason=exact_catalog_available using_cached_catalog=true "
+                f"tracked={tracked} current_total_exact=true",
+                flush=True,
+            )
+        else:
+            emit_call(payload, output)
+        return 0
+
     mode = "quick" if existing_row is not None else "full"
     return registry_call([
         "sync",

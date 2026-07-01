@@ -306,6 +306,26 @@ def test_first_user_creator_run_uses_stale_catalog_guardrail(monkeypatch):
     assert emitted[1]["using_cached_catalog"] is True
 
 
+def test_first_user_bilibili_creator_run_skips_presync_when_exact_catalog_exists(monkeypatch):
+    from media2md.bundle.scripts.creator_run_shared import prepare_catalog_for_creator_run
+
+    emitted: list[dict[str, object]] = []
+    code = prepare_catalog_for_creator_run(
+        provider="bilibili",
+        creator_arg="1510588366",
+        normalized_creator="1510588366",
+        existing_row={"tracked": 50, "current_total_exact": 1},
+        quick_window=100,
+        output="ndjson",
+        registry_call=lambda args: 99,
+        emit_call=lambda payload, output: emitted.append(payload),
+    )
+    assert code == 0
+    assert emitted[0]["event"] == "auto_sync_skipped"
+    assert emitted[0]["provider"] == "bilibili"
+    assert emitted[0]["reason"] == "exact_catalog_available"
+
+
 def test_first_user_creator_run_builds_registry_command_with_saved_policy_defaults(monkeypatch):
     monkeypatch.setattr(public_cli, "resolve_creator_provider", lambda creator, provider, command_name: "youtube")
     monkeypatch.setattr(public_cli, "refresh_auth", lambda provider: None)

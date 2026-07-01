@@ -95,6 +95,7 @@ def emit_creator_run_catalog_context(
         "catalog_source_url": source_url,
         "tracked": int(existing_row.get("tracked") or 0) if existing_row else 0,
         "catalog_last_synced_at": existing_row.get("last_sync_at") if existing_row else None,
+        "catalog_last_sync_mode": existing_row.get("last_sync_mode") if existing_row else None,
         "catalog_exact": bool(existing_row.get("current_total_exact")) if existing_row else False,
         "using_saved_catalog": existing_row is not None,
     }
@@ -128,6 +129,7 @@ def emit_creator_run_catalog_context(
         print(f"creator={creator}", flush=True)
         print(f"using_saved_catalog={str(payload['using_saved_catalog']).lower()}", flush=True)
         print(f"catalog_last_synced_at={payload['catalog_last_synced_at'] or '-'}", flush=True)
+        print(f"catalog_last_sync_mode={payload['catalog_last_sync_mode'] or '-'}", flush=True)
         print(f"catalog_exact={str(payload['catalog_exact']).lower()}", flush=True)
         print(f"tracked={payload['tracked']}", flush=True)
         if provider in {"youtube", "instagram", "bilibili"}:
@@ -184,8 +186,14 @@ def emit_sync_warning_or_fail(
                     "creator": creator,
                     "using_cached_catalog": True,
                     "catalog_last_synced_at": existing_row.get("last_sync_at"),
+                    "catalog_last_sync_mode": existing_row.get("last_sync_mode"),
                     "tracked": int(existing_row.get("tracked") or 0),
                     "confirmation_was_explicit": True,
+                    "resilience_policy": (
+                        "prefer_cached_catalog_for_long_bilibili_drains"
+                        if provider == "bilibili"
+                        else "explicit_cached_catalog_confirmation_required"
+                    ),
                 },
             ),
         ),
@@ -194,8 +202,14 @@ def emit_sync_warning_or_fail(
             "creator": creator,
             "using_cached_catalog": True,
             "catalog_last_synced_at": existing_row.get("last_sync_at"),
+            "catalog_last_sync_mode": existing_row.get("last_sync_mode"),
             "tracked": int(existing_row.get("tracked") or 0),
             "confirmation_was_explicit": True,
+            "resilience_policy": (
+                "prefer_cached_catalog_for_long_bilibili_drains"
+                if provider == "bilibili"
+                else "explicit_cached_catalog_confirmation_required"
+            ),
         },
     ).as_dict()
     if args.output == "human":
@@ -204,9 +218,11 @@ def emit_sync_warning_or_fail(
         print(f"creator={creator}", flush=True)
         print("using_cached_catalog=true", flush=True)
         print(f"catalog_last_synced_at={existing_row.get('last_sync_at') or '-'}", flush=True)
+        print(f"catalog_last_sync_mode={existing_row.get('last_sync_mode') or '-'}", flush=True)
         print(f"tracked={int(existing_row.get('tracked') or 0)}", flush=True)
         if provider == "bilibili":
             print("recommended_for_bilibili_long_runs=true", flush=True)
+            print("resilience_policy=prefer_cached_catalog_for_long_bilibili_drains", flush=True)
             print("hint=For longer Bilibili drains, rerun with --allow-stale-catalog to keep processing when live refresh is rate-limited.", flush=True)
     else:
         emit(warning, args.output)

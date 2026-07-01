@@ -250,6 +250,9 @@ def connect() -> sqlite3.Connection:
             last_full_youtube_video_total INTEGER,
             last_full_youtube_shorts_total INTEGER,
             last_full_youtube_streams_total INTEGER,
+            sync_incomplete INTEGER NOT NULL DEFAULT 0,
+            sync_pause_reason TEXT,
+            pagination_backend TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             UNIQUE(provider, external_id),
@@ -322,6 +325,9 @@ def connect() -> sqlite3.Connection:
         ("last_full_youtube_video_total", "INTEGER"),
         ("last_full_youtube_shorts_total", "INTEGER"),
         ("last_full_youtube_streams_total", "INTEGER"),
+        ("sync_incomplete", "INTEGER NOT NULL DEFAULT 0"),
+        ("sync_pause_reason", "TEXT"),
+        ("pagination_backend", "TEXT"),
     ):
         if name not in creator_columns:
             conn.execute(f"ALTER TABLE creators ADD COLUMN {name} {definition}")
@@ -1783,6 +1789,9 @@ def _extract_bilibili_catalog(source_url: str, limit: int | None, start: int | N
             "display_name": str(mid),
             "source_url": f"https://space.bilibili.com/{mid}",
             "identifiers": {"mid": str(mid)},
+            "pagination_backend": "yt_dlp_space_fallback",
+            "sync_incomplete": True,
+            "pause_reason": "live_refresh_rate_limited",
         }
         items: list[dict[str, Any]] = []
         threshold = youtube_long_threshold_seconds()
@@ -1819,6 +1828,9 @@ def _extract_bilibili_catalog(source_url: str, limit: int | None, start: int | N
         "display_name": display_name,
         "source_url": f"https://space.bilibili.com/{mid}",
         "identifiers": {"mid": str(mid)},
+        "pagination_backend": "bilibili_api",
+        "sync_incomplete": False,
+        "pause_reason": None,
     }
     items: list[dict[str, Any]] = []
     threshold = youtube_long_threshold_seconds()
@@ -2096,8 +2108,17 @@ def upsert_catalog(
     }
     identifiers = {**stored_identifiers, **identifiers}
     conn.execute(
-        "UPDATE creators SET last_sync_mode=?,last_sync_at=?,last_full_sync_at=CASE WHEN ?='full' THEN ? ELSE last_full_sync_at END,updated_at=? WHERE id=?",
-        (sync_mode, now, sync_mode, now, now, creator_id),
+        "UPDATE creators SET last_sync_mode=?,last_sync_at=?,last_full_sync_at=CASE WHEN ?='full' THEN ? ELSE last_full_sync_at END,"
+        "sync_incomplete=0,sync_pause_reason=NULL,pagination_backend=?,updated_at=? WHERE id=?",
+        (
+            sync_mode,
+            now,
+            sync_mode,
+            now,
+            str(meta.get("pagination_backend") or ("multi_surface_playlist" if provider == "youtube" else "bilibili_api" if provider == "bilibili" else "")) or None,
+            now,
+            creator_id,
+        ),
     )
 
     normalized_items: list[dict[str, Any]] = []
@@ -2241,6 +2262,19 @@ def upsert_catalog(
             ),
         )
         creator_after = conn.execute("SELECT * FROM creators WHERE id=?", (creator_id,)).fetchone()
+    if provider == "bilibili":
+        conn.execute(
+            "UPDATE creators SET sync_incomplete=?,sync_pause_reason=?,pagination_backend=?,updated_at=? WHERE id=?",
+            (
+                int(bool(meta.get("sync_incomplete"))),
+                meta.get("pause_reason"),
+                meta.get("pagination_backend") or "bilibili_api",
+                now,
+                creator_id,
+            ),
+        )
+        conn.commit()
+        creator_after = conn.execute("SELECT * FROM creators WHERE id=?", (creator_id,)).fetchone()
     conn.commit()
 
     added = incoming_ids - previous_ids
@@ -2262,12 +2296,17 @@ def upsert_catalog(
         "creator_identifiers": identifiers,
         "media_type_totals": counts,
         "media_type_totals_exact": exact_flags,
+        "sync_incomplete": bool(creator_after["sync_incomplete"]) if "sync_incomplete" in creator_after.keys() else False,
+        "pause_reason": creator_after["sync_pause_reason"] if "sync_pause_reason" in creator_after.keys() else None,
+        "pagination_backend": creator_after["pagination_backend"] if "pagination_backend" in creator_after.keys() else None,
         "youtube_video_total": counts.get("youtube_video", 0),
         "youtube_video_total_exact": bool(exact_flags.get("youtube_video", False)),
         "youtube_shorts_total": counts.get("youtube_short", 0),
         "youtube_shorts_total_exact": bool(exact_flags.get("youtube_short", False)),
         "youtube_streams_total": counts.get("youtube_stream", 0),
         "youtube_streams_total_exact": bool(exact_flags.get("youtube_stream", False)),
+        "bilibili_video_total": counts.get("bilibili_video", 0),
+        "bilibili_video_total_exact": bool(exact_flags.get("bilibili_video", False)) if provider == "bilibili" else False,
         "previous_media_type_totals": previous_type_totals,
         "last_full_exact_total": creator_after["last_full_exact_total"],
         "last_full_exact_at": creator_after["last_full_exact_at"],
@@ -2275,6 +2314,8 @@ def upsert_catalog(
             "youtube_video": int(creator_after["last_full_youtube_video_total"] or 0),
             "youtube_short": int(creator_after["last_full_youtube_shorts_total"] or 0),
             "youtube_stream": int(creator_after["last_full_youtube_streams_total"] or 0),
+            **({"bilibili_video": int(creator_after["last_full_exact_total"] or 0)}
+               if provider == "bilibili" and creator_after["last_full_exact_total"] is not None else {}),
             **({"tiktok_video": int(creator_after["last_full_exact_total"] or 0)}
                if provider == "tiktok" and creator_after["last_full_exact_total"] is not None else {}),
         },

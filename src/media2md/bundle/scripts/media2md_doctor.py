@@ -571,6 +571,8 @@ def bilibili_access_payload(video_id: str, *, transcription_smoke_test: bool = F
         payload = {
             "event": "bilibili_access_doctor",
             "provider": "bilibili",
+            "live_probe_ready": False,
+            "degraded": False,
             "pipeline_ready": False,
             "fully_ready": False,
             "error_code": "invalid_video_id",
@@ -589,6 +591,8 @@ def bilibili_access_payload(video_id: str, *, transcription_smoke_test: bool = F
     payload = {
         "event": "bilibili_access_doctor",
         "provider": "bilibili",
+        "live_probe_ready": False,
+        "degraded": False,
         "url": f"https://www.bilibili.com/video/{video_id}",
         "metadata_ready": False,
         "caption_ready": False,
@@ -658,6 +662,8 @@ def bilibili_access_payload(video_id: str, *, transcription_smoke_test: bool = F
         payload["pipeline_readiness"] = "verified_caption_path"
         payload["pipeline_end_to_end_verified"] = True
         payload["fully_ready"] = True
+        payload["live_probe_ready"] = True
+        payload["degraded"] = False
         return _attach_health(payload, status="ok", message="Bilibili caption-first pipeline is ready")
 
     try:
@@ -678,6 +684,8 @@ def bilibili_access_payload(video_id: str, *, transcription_smoke_test: bool = F
         payload["metadata_ready"] and payload["audio_download_ready"]
         and payload["transcription_cli_ready"] and payload["ffmpeg_ready"]
     )
+    payload["live_probe_ready"] = bool(payload["metadata_ready"] and payload["audio_download_ready"])
+    payload["degraded"] = False
     if payload["pipeline_ready"]:
         if payload["transcription_smoke_tested"] and payload["transcription_smoke_ready"]:
             payload["pipeline_readiness"] = "verified_with_local_transcription_smoke_test"

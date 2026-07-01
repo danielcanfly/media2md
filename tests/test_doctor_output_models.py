@@ -31,6 +31,8 @@ def test_bilibili_access_payload_invalid_id_keeps_guidance_contract():
     assert payload["required_action"] == "provide_valid_video_id"
     assert payload["health_status"] == "warn"
     assert "Bilibili" in payload["error"]
+    assert payload["live_probe_ready"] is False
+    assert payload["degraded"] is False
 
 
 def test_instagram_payload_reports_ocr_route(monkeypatch):

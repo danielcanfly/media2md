@@ -199,11 +199,20 @@ def test_creator_catalog_metadata_derives_instagram_surface_from_source_url():
 
 def test_creator_catalog_metadata_derives_bilibili_surface_from_source_url():
     metadata = creator_catalog_metadata(
-        {"provider": "bilibili", "source_url": "https://space.bilibili.com/1510588366"}
+        {
+            "provider": "bilibili",
+            "source_url": "https://space.bilibili.com/1510588366",
+            "pagination_backend": "yt_dlp_space_fallback",
+            "sync_incomplete": 1,
+            "sync_pause_reason": "live_refresh_rate_limited",
+        }
     )
     assert metadata["source_url"] == "https://space.bilibili.com/1510588366"
     assert metadata["catalog_surface"] == "videos"
     assert metadata["catalog_surfaces"] == ["videos"]
+    assert metadata["pagination_backend"] == "yt_dlp_space_fallback"
+    assert metadata["sync_incomplete"] is True
+    assert metadata["sync_pause_reason"] == "live_refresh_rate_limited"
 
 
 def test_render_creator_status_human_includes_bilibili_catalog_surface(capsys):
@@ -223,6 +232,9 @@ def test_render_creator_status_human_includes_bilibili_catalog_surface(capsys):
             "remaining": 50,
             "last_full_exact_total": 50,
             "last_full_exact_at": "2026-07-01T00:00:00+00:00",
+            "pagination_backend": "yt_dlp_space_fallback",
+            "sync_incomplete": 1,
+            "sync_pause_reason": "live_refresh_rate_limited",
         }],
         effective_policy=lambda provider, creator: {"sync": {"enabled": False, "every_minutes": 1440, "full_every_minutes": 10080}, "processing": {"mode": "batch", "batch_sizes": {}}, "filters": {}},
         emit=lambda payload, output: None,
@@ -235,6 +247,78 @@ def test_render_creator_status_human_includes_bilibili_catalog_surface(capsys):
     assert result == 0
     out = capsys.readouterr().out
     assert "SOURCE surface=videos catalog_surfaces=videos url=https://space.bilibili.com/1510588366" in out
+    assert "SYNC_RESILIENCE pagination_backend=yt_dlp_space_fallback sync_incomplete=true pause_reason=live_refresh_rate_limited" in out
+
+
+def test_registry_rows_include_bilibili_sync_resilience_columns(tmp_path):
+    registry_db = tmp_path / "media2md.db"
+    conn = __import__("sqlite3").connect(registry_db)
+    try:
+        conn.execute(
+            """CREATE TABLE creators (
+                id INTEGER PRIMARY KEY,
+                provider TEXT NOT NULL,
+                handle TEXT NOT NULL,
+                source_url TEXT,
+                current_total INTEGER,
+                current_total_exact INTEGER,
+                youtube_video_total INTEGER,
+                youtube_video_total_exact INTEGER,
+                youtube_shorts_total INTEGER,
+                youtube_shorts_total_exact INTEGER,
+                youtube_streams_total INTEGER,
+                youtube_streams_total_exact INTEGER,
+                last_sync_mode TEXT,
+                last_sync_at TEXT,
+                last_full_sync_at TEXT,
+                last_full_exact_total INTEGER,
+                last_full_exact_at TEXT,
+                last_full_youtube_video_total INTEGER,
+                last_full_youtube_shorts_total INTEGER,
+                last_full_youtube_streams_total INTEGER,
+                sync_incomplete INTEGER,
+                sync_pause_reason TEXT,
+                pagination_backend TEXT
+            )"""
+        )
+        conn.execute(
+            """CREATE TABLE media (
+                id INTEGER PRIMARY KEY,
+                provider TEXT NOT NULL,
+                creator_id INTEGER NOT NULL,
+                external_id TEXT NOT NULL,
+                source_url TEXT NOT NULL,
+                status TEXT NOT NULL,
+                is_current INTEGER NOT NULL
+            )"""
+        )
+        conn.execute(
+            """INSERT INTO creators (
+                id, provider, handle, source_url, current_total, current_total_exact,
+                youtube_video_total, youtube_video_total_exact, youtube_shorts_total, youtube_shorts_total_exact,
+                youtube_streams_total, youtube_streams_total_exact, last_sync_mode, last_sync_at,
+                last_full_sync_at, last_full_exact_total, last_full_exact_at,
+                last_full_youtube_video_total, last_full_youtube_shorts_total, last_full_youtube_streams_total,
+                sync_incomplete, sync_pause_reason, pagination_backend
+            ) VALUES (1, 'bilibili', '1510588366', 'https://space.bilibili.com/1510588366', 2, 0, 0, 0, 0, 0, 0, 0,
+                'quick', '2026-07-01T00:00:00+00:00', '2026-06-30T00:00:00+00:00', 2, '2026-06-30T00:00:00+00:00',
+                0, 0, 0, 1, 'live_refresh_rate_limited', 'yt_dlp_space_fallback')"""
+        )
+        conn.executemany(
+            "INSERT INTO media (id, provider, creator_id, external_id, source_url, status, is_current) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                (1, "bilibili", 1, "current-video-1", "https://www.bilibili.com/video/current-video-1", "pending", 1),
+                (2, "bilibili", 1, "current-video-2", "https://www.bilibili.com/video/current-video-2", "completed", 1),
+            ],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = registry_rows(registry_db, include_youtube_totals=True)
+    assert rows[0]["sync_incomplete"] == 1
+    assert rows[0]["sync_pause_reason"] == "live_refresh_rate_limited"
+    assert rows[0]["pagination_backend"] == "yt_dlp_space_fallback"
 
 
 def test_render_creator_status_ndjson_includes_youtube_catalog_metadata():

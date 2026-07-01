@@ -273,13 +273,15 @@ def test_emit_sync_warning_or_fail_mentions_bilibili_stale_catalog_recommendatio
         provider="bilibili",
         creator="1510588366",
         sync_code=2,
-        existing_row={"tracked": 50, "last_sync_at": "2026-07-01T14:34:08+00:00"},
+        existing_row={"tracked": 50, "last_sync_at": "2026-07-01T14:34:08+00:00", "last_sync_mode": "quick"},
         emit=lambda payload, output: None,
     )
     assert result is None
     out = capsys.readouterr().out
     assert "SYNC_WARNING" in out
     assert "recommended_for_bilibili_long_runs=true" in out
+    assert "catalog_last_sync_mode=quick" in out
+    assert "resilience_policy=prefer_cached_catalog_for_long_bilibili_drains" in out
     assert "--allow-stale-catalog" in out
 
 
