@@ -130,14 +130,24 @@ except ModuleNotFoundError:
             return tuple(None for _ in attr_names)
         return tuple(getattr(module, attr_name, None) for attr_name in attr_names)
 
-ROOT = Path(__file__).resolve().parents[1]
-CORE = ROOT / "scripts" / "social2md_core.py"
-REGISTRY = ROOT / "scripts" / "media2md_registry.py"
-AUTH = ROOT / "scripts" / "media2md_auth.py"
-GENERIC = ROOT / "scripts" / "generic_media.py"
-UPDATE = ROOT / "scripts" / "media2md_update.py"
-DOCTOR = ROOT / "scripts" / "media2md_doctor.py"
-BACKUP = ROOT / "scripts" / "media2md_backup.py"
+def _project_root() -> Path:
+    explicit = os.environ.get("MEDIA2MD_PROJECT_ROOT")
+    if explicit:
+        root = Path(explicit).expanduser().resolve()
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+    return Path(__file__).resolve().parents[1]
+
+
+SOURCE_ROOT = Path(__file__).resolve().parents[1]
+ROOT = _project_root()
+CORE = SOURCE_ROOT / "scripts" / "social2md_core.py"
+REGISTRY = SOURCE_ROOT / "scripts" / "media2md_registry.py"
+AUTH = SOURCE_ROOT / "scripts" / "media2md_auth.py"
+GENERIC = SOURCE_ROOT / "scripts" / "generic_media.py"
+UPDATE = SOURCE_ROOT / "scripts" / "media2md_update.py"
+DOCTOR = SOURCE_ROOT / "scripts" / "media2md_doctor.py"
+BACKUP = SOURCE_ROOT / "scripts" / "media2md_backup.py"
 CONFIG = ROOT / "config" / "social2md.json"
 POLICIES = ROOT / "config" / "provider_policies.json"
 SCHEDULER_STATE = ROOT / "data" / "media2md_scheduler_state.json"
@@ -797,7 +807,7 @@ def add_creator(args: argparse.Namespace) -> int:
                 raise RuntimeError('Instagram support is not installed. Run: python -m pip install "media2md[instagram]"') from exc
             # The legacy Instagram manager accepts only a username. Normalize profile and
             # /reels URLs before crossing that compatibility boundary.
-            manager = ROOT / "scripts" / "manage_creators.py"
+            manager = SOURCE_ROOT / "scripts" / "manage_creators.py"
             result = subprocess.run([sys.executable, str(manager), "add", creator], cwd=ROOT)
             if result.returncode not in (0,):
                 # Existing creator is not a destructive error for an idempotent add command.

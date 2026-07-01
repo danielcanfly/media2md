@@ -109,6 +109,23 @@ def test_managed_runtime_public_cli_script_starts_without_src_pythonpath(monkeyp
  assert result.returncode==0, result.stderr or result.stdout
  assert 'creator status' in result.stdout.lower()
 
+def test_module_entrypoint_prefers_source_checkout_when_project_root_points_to_repo(monkeypatch, tmp_path):
+ monkeypatch.setenv('HOME',str(tmp_path))
+ root=Path(__file__).parents[1]
+ env=os.environ.copy()
+ env['PYTHONPATH']=str(root/'src')
+ env['HOME']=str(tmp_path)
+ env['MEDIA2MD_PROJECT_ROOT']=str(root)
+ result=subprocess.run(
+  [sys.executable,'-m','media2md.cli','creator','status','--provider','bilibili','--creator','1510588366','--help'],
+  cwd=root,
+  capture_output=True,
+  text=True,
+  env=env,
+ )
+ assert result.returncode==0, result.stderr or result.stdout
+ assert '--provider {instagram,youtube,tiktok,bilibili}' in result.stdout
+
 def test_runtime_set_base_path_migrates_existing_managed_tree(monkeypatch,tmp_path):
  monkeypatch.setenv('HOME',str(tmp_path))
  from media2md import cli

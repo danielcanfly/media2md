@@ -4,6 +4,12 @@ from pathlib import Path
 from .bootstrap import VERSION, ensure_runtime, import_legacy, managed_base, runtime_root, state_root
 from .cli_output_service import make_output_model, make_section
 
+
+def _source_bundle_script(project_root: Path) -> Path:
+ bundle_root = project_root/'src'/'media2md'/'bundle'
+ script = bundle_root/'scripts'/'media2md.py'
+ return script
+
 def _registry_path() -> Path:
  return Path.home()/'Library'/'Application Support'/'media2md-config'/'project.json' if sys.platform=='darwin' else (Path(os.getenv('APPDATA',Path.home()/'.config'))/'media2md'/'project.json' if os.name=='nt' else Path(os.getenv('XDG_CONFIG_HOME',Path.home()/'.config'))/'media2md'/'project.json')
 
@@ -87,8 +93,10 @@ def main()->int:
  if explicit:
   candidate=Path(explicit).expanduser().resolve()
   script=candidate/'scripts'/'media2md.py'
+  if not script.is_file():
+   script=_source_bundle_script(candidate)
   if script.is_file():
-   env=os.environ.copy(); env['MEDIA2MD_PYTHON']=sys.executable
+   env=os.environ.copy(); env['MEDIA2MD_PYTHON']=sys.executable; env['MEDIA2MD_PROJECT_ROOT']=str(candidate)
    return subprocess.call([sys.executable,str(script),*argv],cwd=candidate,env=env)
  root=ensure_runtime()
  env=os.environ.copy(); env['MEDIA2MD_PROJECT_ROOT']=str(root); env['MEDIA2MD_PYTHON']=sys.executable

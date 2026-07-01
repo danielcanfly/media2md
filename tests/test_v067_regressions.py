@@ -800,6 +800,35 @@ def test_social2md_uses_source_root_for_scripts_when_project_root_is_external(tm
             os.environ["MEDIA2MD_PROJECT_ROOT"] = original
 
 
+def test_media2md_uses_source_root_for_scripts_when_project_root_is_external(tmp_path, monkeypatch):
+    root = Path(__file__).resolve().parents[1]
+    script_path = root / "src" / "media2md" / "bundle" / "scripts" / "media2md.py"
+    module_name = "media2md_source_root_regression"
+    spec = importlib.util.spec_from_file_location(module_name, script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    original = os.environ.get("MEDIA2MD_PROJECT_ROOT")
+    monkeypatch.setenv("MEDIA2MD_PROJECT_ROOT", str(tmp_path / "external-project-root"))
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+
+    try:
+        assert module.ROOT == (tmp_path / "external-project-root").resolve()
+        assert module.SOURCE_ROOT == root / "src" / "media2md" / "bundle"
+        assert module.CORE == module.SOURCE_ROOT / "scripts" / "social2md_core.py"
+        assert module.REGISTRY == module.SOURCE_ROOT / "scripts" / "media2md_registry.py"
+        assert module.GENERIC == module.SOURCE_ROOT / "scripts" / "generic_media.py"
+        assert module.CONFIG == module.ROOT / "config" / "social2md.json"
+        assert not str(module.CORE).startswith(str(module.ROOT / "scripts"))
+        assert not str(module.REGISTRY).startswith(str(module.ROOT / "scripts"))
+    finally:
+        sys.modules.pop(module_name, None)
+        if original is None:
+            os.environ.pop("MEDIA2MD_PROJECT_ROOT", None)
+        else:
+            os.environ["MEDIA2MD_PROJECT_ROOT"] = original
+
+
 def test_command_failure_keeps_full_log_and_surfaces_root_cause(tmp_path, monkeypatch):
     import sys
     import media2md_runtime as runtime
