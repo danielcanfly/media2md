@@ -1804,7 +1804,7 @@ def _extract_bilibili_catalog(source_url: str, limit: int | None, start: int | N
             "pause_reason": "live_refresh_rate_limited",
         }
         items: list[dict[str, Any]] = []
-        threshold = provider_long_threshold_seconds(provider)
+        threshold = provider_long_threshold_seconds("bilibili")
         for raw in entries:
             if not isinstance(raw, dict):
                 continue
@@ -1843,7 +1843,7 @@ def _extract_bilibili_catalog(source_url: str, limit: int | None, start: int | N
         "pause_reason": None,
     }
     items: list[dict[str, Any]] = []
-    threshold = provider_long_threshold_seconds(provider)
+    threshold = provider_long_threshold_seconds("bilibili")
     for raw in vlist:
         if not isinstance(raw, dict):
             continue
