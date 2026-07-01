@@ -3,14 +3,14 @@ import json, os, subprocess, sys, threading, zipfile
 from media2md.bootstrap import ensure_runtime, managed_base, runtime_root, state_root
 from media2md import __version__
 
-def test_version(): assert __version__=='0.9.4'
+def test_version(): assert __version__=='0.9.5'
 def test_clean_runtime(monkeypatch,tmp_path):
  monkeypatch.setenv('HOME',str(tmp_path)); root=ensure_runtime(force=True)
  assert managed_base()==tmp_path/'Downloads'/'media2md'
  assert (root/'scripts/media2md.py').is_file(); assert (root/'scripts/manage_creators.py').is_file(); assert (root/'scripts/manage_videos.py').is_file(); assert (root/'bin/media2md').is_file()
  assert (root/'config').is_symlink(); assert (root/'data').is_symlink()
  result=subprocess.run([sys.executable,str(root/'scripts/media2md.py'),'version'],cwd=root,capture_output=True,text=True)
- assert result.returncode==0 and '0.9.4' in result.stdout
+ assert result.returncode==0 and '0.9.5' in result.stdout
 
 def test_concurrent_runtime_bootstrap(monkeypatch,tmp_path):
  monkeypatch.setenv('HOME',str(tmp_path))
@@ -92,6 +92,22 @@ def test_managed_runtime_generic_media_script_starts_without_src_pythonpath(monk
  )
  assert result.returncode==0, result.stderr or result.stdout
  assert 'usage:' in result.stdout.lower()
+
+def test_managed_runtime_public_cli_script_starts_without_src_pythonpath(monkeypatch,tmp_path):
+ monkeypatch.setenv('HOME',str(tmp_path))
+ root=ensure_runtime(force=True)
+ env=os.environ.copy()
+ env.pop('PYTHONPATH',None)
+ env['HOME']=str(tmp_path)
+ result=subprocess.run(
+  [sys.executable,str(root/'scripts'/'media2md.py'),'creator','status','--help'],
+  cwd=root,
+  capture_output=True,
+  text=True,
+  env=env,
+ )
+ assert result.returncode==0, result.stderr or result.stdout
+ assert 'creator status' in result.stdout.lower()
 
 def test_runtime_set_base_path_migrates_existing_managed_tree(monkeypatch,tmp_path):
  monkeypatch.setenv('HOME',str(tmp_path))

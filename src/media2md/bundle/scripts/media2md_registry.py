@@ -392,6 +392,12 @@ def _merge_creator_rows(conn: sqlite3.Connection, primary_id: int, duplicate_id:
 
 def _identity_rows(conn: sqlite3.Connection, provider: str, external_id: str, handle: str, identifiers: dict[str, str] | None = None) -> list[sqlite3.Row]:
     found: dict[int, sqlite3.Row] = {}
+    identifiers = {str(k): str(v) for k, v in (identifiers or {}).items() if v}
+    if provider == "bilibili":
+        shared_mid = identifiers.get("mid") or identifiers.get("channel_id")
+        if shared_mid:
+            identifiers.setdefault("mid", shared_mid)
+            identifiers.setdefault("channel_id", shared_mid)
     if external_id:
         row = conn.execute("SELECT * FROM creators WHERE provider=? AND external_id=?", (provider, external_id)).fetchone()
         if row: found[int(row["id"])] = row
@@ -403,7 +409,7 @@ def _identity_rows(conn: sqlite3.Connection, provider: str, external_id: str, ha
             (provider, handle),
         ).fetchone()
         if row: found[int(row["id"])] = row
-    for identifier_type, identifier_value in (identifiers or {}).items():
+    for identifier_type, identifier_value in identifiers.items():
         if not identifier_value:
             continue
         row = conn.execute(
@@ -433,6 +439,11 @@ def upsert_creator_identity(
 ) -> sqlite3.Row:
     now = iso_now()
     identifiers = {str(k): str(v) for k, v in (identifiers or {}).items() if v}
+    if provider == "bilibili":
+        shared_mid = identifiers.get("mid") or identifiers.get("channel_id") or (_is_bilibili_mid(external_id) and external_id) or None
+        if shared_mid:
+            identifiers.setdefault("mid", str(shared_mid))
+            identifiers.setdefault("channel_id", str(shared_mid))
     external_id = external_id or identifiers.get("sec_uid") or identifiers.get("channel_id") or handle
     handle = handle.lstrip("@") or external_id
     incoming_handle = handle
@@ -447,6 +458,7 @@ def upsert_creator_identity(
             handle = incoming_handle
     if creator:
         existing_external = str(creator["external_id"] or "")
+        existing_source_url = str(creator["source_url"] or "")
         # Legacy refreshes may only know a handle or numeric TikTok user id. Never
         # overwrite a previously learned secUid/channel id with a weaker identifier.
         if provider == "tiktok" and existing_external and existing_external.lower() != str(creator["handle"]).lower():
@@ -454,6 +466,20 @@ def upsert_creator_identity(
             existing_is_strong = not existing_external.isdigit()
             if incoming_is_weak and existing_is_strong:
                 external_id = existing_external
+        if provider == "bilibili":
+            existing_mid = identifiers.get("mid") or identifiers.get("channel_id") or (
+                existing_external if _is_bilibili_mid(existing_external) else ""
+            )
+            incoming_legacy_single_media = (
+                existing_mid
+                and not _is_bilibili_mid(handle)
+                and not _is_bilibili_mid(external_id)
+            )
+            if incoming_legacy_single_media:
+                external_id = existing_mid
+                handle = str(creator["handle"] or existing_mid)
+                if existing_source_url.startswith("https://space.bilibili.com/"):
+                    source_url = existing_source_url
         if provider == "youtube" and existing_external.startswith("UC") and not external_id.startswith("UC"):
             external_id = existing_external
         old_handle = str(creator["handle"])
@@ -483,6 +509,10 @@ def upsert_creator_identity(
     )
     identifiers.setdefault("primary", external_id)
     for identifier_type, identifier_value in identifiers.items():
+        conn.execute(
+            "DELETE FROM creator_identifiers WHERE creator_id=? AND provider=? AND identifier_type=? AND identifier_value<>?",
+            (creator_id, provider, identifier_type, identifier_value),
+        )
         conn.execute(
             "INSERT INTO creator_identifiers(creator_id,provider,identifier_type,identifier_value,first_seen_at,last_seen_at) VALUES(?,?,?,?,?,?) "
             "ON CONFLICT(provider,identifier_type,identifier_value) DO UPDATE SET creator_id=excluded.creator_id,last_seen_at=excluded.last_seen_at",
@@ -2460,6 +2490,12 @@ def _sync_creator_unlocked(provider: str, creator_value: str, mode: str = "full"
             f"max_pages_per_run={sync_max_pages or 'unlimited'} resumable=true",
             flush=True,
         )
+    elif provider == "bilibili":
+        page_size = 50
+        sync_runtime_budget = 0
+        sync_max_pages = 0
+        sync_started = time.monotonic()
+        pages_completed_this_run = 0
     else:
         page_size = 100
         sync_runtime_budget = 0
