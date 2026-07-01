@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.5 - 2026-07-01
+
+- Add Instagram post and carousel OCR processing to the public package flow, using gallery-dl asset inspection plus local OCR output grouped by image into one Markdown artifact.
+- Support shared Instagram post URLs such as `/creator-name/p/<shortcode>/`, preserve post surface canonicalization, and keep carousel classification stable even when query parameters like `?img_index=` are present.
+- Fix generic media tracking state so reprocessing resets stale failure markers and successful post processing commits `completed` status, markdown path, and timestamps consistently into the runtime database.
+- Validate the packaged `media2md` CLI wrapper end to end, including managed runtime bootstrap, real `media inspect`, and real `media add --process-now` flows against live Instagram post fixtures.
+
 ## 0.9.4 - 2026-06-29
 
 - Refine the public project surface with a cleaner README focused on installation, first-run usage, and the main workflows new users need first.

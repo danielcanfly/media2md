@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from media2md.results import HealthResult
 from media2md.bundle.scripts.public_cli_state_service import (
     agent_status_payload,
@@ -10,10 +12,12 @@ from media2md.bundle.scripts.public_cli_state_service import (
     settings_payload,
     system_status_payload,
 )
+from media2md.bundle.scripts import media2md_registry
 
 
 class _Args:
     instagram_backend = None
+    instagram_catalog_surface = None
     youtube_js_runtime = None
     youtube_allow_remote_ejs = None
     youtube_po_token_provider = None
@@ -122,6 +126,7 @@ def test_settings_payload_is_minimal_projection():
 def test_apply_settings_updates_handles_provider_fields():
     args = _Args()
     args.instagram_backend = "gallery-dl"
+    args.instagram_catalog_surface = "mixed"
     args.youtube_caption_languages = "ja,en"
     args.youtube_audio_strategies = "direct,proxy"
     args.youtube_long_video_threshold_minutes = 7
@@ -131,6 +136,7 @@ def test_apply_settings_updates_handles_provider_fields():
     args.update_check_on_use = True
     config = apply_settings_updates({}, args)
     assert config["providers"]["instagram"]["backend"] == "gallery-dl"
+    assert config["providers"]["instagram"]["catalog_surface"] == "mixed"
     assert config["providers"]["youtube"]["caption_languages"] == ["ja", "en"]
     assert config["providers"]["youtube"]["audio_download_strategies"] == ["direct", "proxy"]
     assert config["providers"]["youtube"]["long_video_threshold_seconds"] == 420
@@ -168,6 +174,21 @@ def test_creator_catalog_metadata_derives_youtube_surface_and_configured_surface
     assert metadata["source_url"] == "https://www.youtube.com/@creator-name/shorts"
     assert metadata["catalog_surface"] == "shorts"
     assert metadata["catalog_surfaces"] == ["videos", "shorts", "streams"]
+
+
+def test_creator_catalog_metadata_derives_instagram_surface_from_source_url():
+    metadata = creator_catalog_metadata(
+        {"provider": "instagram", "source_url": "https://www.instagram.com/creator.name/reels/"}
+    )
+    assert metadata["source_url"] == "https://www.instagram.com/creator.name/reels/"
+    assert metadata["catalog_surface"] == "reels"
+    assert metadata["catalog_surfaces"] == ["reels"]
+
+    mixed_like = creator_catalog_metadata(
+        {"provider": "instagram", "source_url": "https://www.instagram.com/creator.name/"}
+    )
+    assert mixed_like["catalog_surface"] == "posts"
+    assert mixed_like["catalog_surfaces"] == ["reels", "posts"]
 
 
 def test_render_creator_status_ndjson_includes_youtube_catalog_metadata():
@@ -211,3 +232,83 @@ def test_render_creator_status_ndjson_includes_youtube_catalog_metadata():
     assert emitted[0]["source_url"] == "https://www.youtube.com/@creator-name/shorts"
     assert emitted[1]["event"] == "creator_status_completed"
     assert emitted[1]["schema"] == "media2md.cli.creator_status_completed/v1"
+
+
+def test_render_creator_status_human_includes_instagram_catalog_metadata(capsys):
+    class _Args:
+        output = "human"
+
+    result = render_creator_status(
+        _Args(),
+        rows=[{
+            "provider": "instagram",
+            "handle": "creator.name",
+            "source_url": "https://www.instagram.com/creator.name/",
+            "current_total": 8,
+            "current_total_exact": 1,
+            "tracked": 8,
+            "completed": 0,
+            "remaining": 8,
+            "last_full_exact_total": 8,
+            "last_full_exact_at": "2026-06-30T00:00:00+00:00",
+        }],
+        effective_policy=lambda provider, creator: {"sync": {"enabled": True, "every_minutes": 60, "full_every_minutes": 1440}, "processing": {"mode": "batch", "batch_sizes": {}}, "filters": {}},
+        emit=lambda payload, output: None,
+        duration=lambda minutes: f"{minutes}m",
+        normalize_batch_sizes=lambda value: dict(value or {}),
+        include_youtube_breakdown=True,
+        include_batch_limits=True,
+        youtube_catalog_surfaces=lambda: ("videos", "shorts"),
+    )
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "SOURCE surface=posts catalog_surfaces=reels,posts" in out
+
+
+def test_refresh_legacy_preserves_instagram_catalog_profile_url(tmp_path, monkeypatch):
+    registry_db = tmp_path / "media2md.db"
+    legacy_db = tmp_path / "state.db"
+    catalog_dir = tmp_path / "creator_catalogs"
+    catalog_dir.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(media2md_registry, "DB", registry_db)
+    monkeypatch.setattr(media2md_registry, "LEGACY_INSTAGRAM_DB", legacy_db)
+    monkeypatch.setattr(media2md_registry, "LEGACY_INSTAGRAM_CATALOG_DIR", catalog_dir)
+
+    conn = media2md_registry.connect()
+    conn.close()
+
+    old = __import__("sqlite3").connect(legacy_db)
+    try:
+        old.execute("CREATE TABLE creators (id INTEGER PRIMARY KEY, username TEXT NOT NULL, enabled INTEGER NOT NULL)")
+        old.execute(
+            "CREATE TABLE videos (id INTEGER PRIMARY KEY, creator_id INTEGER NOT NULL, shortcode TEXT, source_url TEXT, published_at TEXT, caption TEXT, status TEXT, markdown_path TEXT, markdown_sha256 TEXT, last_error TEXT, created_at TEXT, updated_at TEXT, completed_at TEXT)"
+        )
+        old.execute("INSERT INTO creators (id, username, enabled) VALUES (1, 'creator.name', 1)")
+        old.commit()
+    finally:
+        old.close()
+
+    (catalog_dir / "creator.name.json").write_text(
+        json.dumps({
+            "creator": "creator.name",
+            "profile_url": "https://www.instagram.com/creator.name/",
+            "current_total": 3,
+            "current_total_exact": True,
+            "last_full_sync_at": "2026-06-30T00:00:00+00:00",
+            "updated_at": "2026-06-30T00:00:00+00:00",
+        }),
+        encoding="utf-8",
+    )
+
+    media2md_registry.refresh_legacy()
+
+    conn = media2md_registry.connect()
+    try:
+        row = conn.execute(
+            "SELECT source_url FROM creators WHERE provider='instagram' AND handle='creator.name'"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row is not None
+    assert row["source_url"] == "https://www.instagram.com/creator.name/"

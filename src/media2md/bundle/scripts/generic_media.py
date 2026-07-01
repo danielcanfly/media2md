@@ -34,7 +34,10 @@ from media2md_runtime import (
 from media2md_types import infer_media_type, output_bucket, processing_class
 
 from media2md_auth_shared import refresh_if_configured
-from media2md.remediation_service import auth_verify_command, provider_access_guidance
+try:
+    from media2md.remediation_service import auth_verify_command, provider_access_guidance
+except ModuleNotFoundError:
+    from media2md_remediation_compat import auth_verify_command, provider_access_guidance
 try:
     from media2md.required_actions import validate_required_action
 except ModuleNotFoundError:
@@ -1065,9 +1068,15 @@ def _instagram_media_assets(metadata: dict[str, Any], work: Path) -> list[Path]:
     assets = metadata.get("assets") or []
     files: list[Path] = []
     for index, asset in enumerate(assets, start=1):
-        if str(asset.get("kind") or "") != "image":
-            continue
+        kind = str(asset.get("kind") or "").strip().lower()
+        display_url = str(asset.get("display_url") or "").strip()
         source_url = str(asset.get("source_url") or "").strip()
+        if kind != "image" and not display_url:
+            continue
+        download_url = source_url if kind == "image" else display_url or source_url
+        if kind == "video" and display_url:
+            download_url = display_url
+        source_url = download_url.strip()
         if not source_url:
             continue
         suffix = Path(source_url.split("?", 1)[0]).suffix or ".jpg"

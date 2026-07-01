@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import sqlite3
 import sys
+import urllib.request
 from pathlib import Path
 
 
@@ -117,3 +118,45 @@ def test_registered_process_completion_emits_asset_counts(monkeypatch, capsys):
     assert "image_count=3" in out
     final = generic_media.ROOT / "markdown" / "instagram" / "creator.name" / "posts" / "ABC123xyz9.md"
     final.unlink(missing_ok=True)
+
+
+def test_instagram_media_assets_can_fallback_to_display_url_for_video_assets(monkeypatch, tmp_path: Path):
+    generic_media = _load_module(
+        ROOT / "src" / "media2md" / "bundle" / "scripts" / "generic_media.py",
+        "test_batch_c_video_display_url_fallback",
+    )
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self, size=-1):
+            if hasattr(self, "_done"):
+                return b""
+            self._done = True
+            return b"fake-image-bytes"
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda request, timeout=180: _Response())
+
+    files = generic_media._instagram_media_assets(
+        {
+            "source_url": "https://www.instagram.com/p/ABC123xyz9/",
+            "assets": [
+                {
+                    "index": 1,
+                    "kind": "video",
+                    "source_url": "https://cdn.example.com/clip.mp4",
+                    "display_url": "https://cdn.example.com/frame.jpg",
+                    "ocr_candidate": True,
+                }
+            ],
+        },
+        tmp_path,
+    )
+
+    assert len(files) == 1
+    assert files[0].name.endswith(".jpg")
+    assert files[0].read_bytes() == b"fake-image-bytes"

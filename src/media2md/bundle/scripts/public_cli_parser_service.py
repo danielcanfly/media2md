@@ -51,6 +51,7 @@ def add_common_top_level_commands(
 
     setcmd = setsub.add_parser("set", help="Update one or more saved settings.")
     setcmd.add_argument("--instagram-backend", choices=("auto", "gallery-dl", "instaloader"))
+    setcmd.add_argument("--instagram-catalog-surface", choices=("reels", "posts", "mixed"))
     setcmd.add_argument("--youtube-js-runtime", choices=("auto", "deno", "node", "quickjs"))
     setcmd.add_argument("--youtube-allow-remote-ejs", action=argparse.BooleanOptionalAction)
     setcmd.add_argument("--youtube-po-token-provider", choices=("disabled", "none", "bgutil", "wpc-experimental"))
@@ -225,6 +226,7 @@ def _add_creator_run_arguments(parser, *, include_typed_batch_sizes: bool, inclu
     parser.add_argument("--rank-from", type=int)
     parser.add_argument("--rank-to", type=int)
     parser.add_argument("--order", choices=("newest_first", "oldest_first"))
+    parser.add_argument("--catalog-surface", choices=("reels", "posts", "mixed"), help="Instagram only. Use the saved reels, posts, or mixed catalog surface for this run.")
     parser.add_argument("--allow-stale-catalog", action="store_true", help="Continue with the last saved catalog when refresh-catalog fails. Use this only when you explicitly want cached results.")
     parser.add_argument("--output", choices=("human", "ndjson"), default="human")
 
@@ -298,6 +300,7 @@ def add_common_creator_commands(
     sync.add_argument("creator")
     sync.add_argument("--provider", choices=PROVIDER_CHOICES, help=_provider_help_for_command("creator refresh-catalog"))
     sync.add_argument("--force-full", action="store_true")
+    sync.add_argument("--catalog-surface", choices=("reels", "posts", "mixed"), help="Instagram only. Choose whether the saved catalog tracks reels, posts, or a mixed profile feed.")
     sync.set_defaults(func=creator_sync)
 
     if include_refresh_catalog:
@@ -306,6 +309,7 @@ def add_common_creator_commands(
         refresh.add_argument("creator")
         refresh.add_argument("--provider", choices=PROVIDER_CHOICES, help=_provider_help_for_command("creator refresh-catalog"))
         refresh.add_argument("--force-full", action="store_true")
+        refresh.add_argument("--catalog-surface", choices=("reels", "posts", "mixed"), help="Instagram only. Choose whether the saved catalog tracks reels, posts, or a mixed profile feed.")
         refresh.set_defaults(func=creator_sync)
 
     policy_help = "Update creator sync and processing policy in one command."

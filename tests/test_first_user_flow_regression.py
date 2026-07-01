@@ -343,6 +343,63 @@ def test_first_user_creator_run_builds_registry_command_with_saved_policy_defaul
     assert recorded[0][-2:] == ["--output", "ndjson"]
 
 
+def test_first_user_instagram_creator_run_forwards_typed_batch_sizes(monkeypatch):
+    monkeypatch.setattr(public_cli, "resolve_creator_provider", lambda creator, provider, command_name: "instagram")
+    monkeypatch.setattr(public_cli, "refresh_auth", lambda provider: None)
+    monkeypatch.setattr(public_cli, "normalize_creator", lambda provider, value: "creator.name")
+    monkeypatch.setattr(
+        public_cli,
+        "effective_policy",
+        lambda provider, creator: {
+            "sync": {"quick_window": 100},
+            "processing": {
+                "mode": "batch",
+                "batch_size": 10,
+                "batch_sizes": {"instagram_reel": 2, "instagram_post": 3, "instagram_carousel": 1},
+                "max_batches": 1,
+                "max_runtime_minutes": 10,
+                "max_failures": 1,
+                "sleep_between_batches": 0,
+                "stop_on_failure": False,
+            },
+            "filters": {"order": "newest_first", "since": None, "until": None, "rank_from": None, "rank_to": None},
+        },
+    )
+    recorded: list[list[str]] = []
+    monkeypatch.setattr(public_cli, "core", lambda args: recorded.append(list(args)) or 0)
+    monkeypatch.setattr(public_cli, "refresh_registry_legacy", lambda: None)
+
+    args = _FakeArgs(
+        creator="@creator.name",
+        provider="instagram",
+        mode=None,
+        batch_size=None,
+        batch_size_type=[],
+        max_batches=None,
+        max_runtime_minutes=None,
+        max_failures=None,
+        stop_on_failure=False,
+        retry_failed=False,
+        sleep_between_batches=None,
+        since=None,
+        until=None,
+        rank_from=None,
+        rank_to=None,
+        order=None,
+        allow_stale_catalog=False,
+        output="human",
+        catalog_surface="mixed",
+    )
+    result = public_cli.creator_run(args)
+    assert result == 0
+    assert "--batch-sizes-json" in recorded[0]
+    payload = json.loads(recorded[0][recorded[0].index("--batch-sizes-json") + 1])
+    assert payload["instagram_reel"] == 2
+    assert payload["instagram_post"] == 3
+    assert payload["instagram_carousel"] == 1
+    assert recorded[0][-2:] == ["--catalog-surface", "mixed"]
+
+
 def test_first_user_creator_run_summary_includes_result_folder_and_finder_hint(capsys):
     registry_mod = __import__("media2md.bundle.scripts.media2md_registry", fromlist=["_creator_run_summary"])
     markdown_root = Path("/tmp/media2md/markdown/youtube/creator-name")
@@ -433,7 +490,7 @@ def test_first_user_runtime_status_reports_managed_paths(monkeypatch, tmp_path, 
     assert payload["status"] == "ok"
     assert payload["managed"] is True
     assert payload["managed_base"].endswith("/Downloads/media2md")
-    assert payload["runtime_root"].endswith("/runtime/0.9.4")
+    assert payload["runtime_root"].endswith("/runtime/0.9.5")
 
 
 def test_first_user_runtime_install_reports_installed_path(monkeypatch, tmp_path, capsys):
@@ -444,7 +501,7 @@ def test_first_user_runtime_install_reports_installed_path(monkeypatch, tmp_path
     out = capsys.readouterr().out
     assert result == 0
     assert "MEDIA2MD_RUNTIME_INSTALLED" in out
-    assert "version=0.9.4" in out
+    assert "version=0.9.5" in out
 
 
 def test_first_user_public_cli_main_answers_version_without_runtime_delegate(monkeypatch, tmp_path, capsys):
@@ -461,7 +518,7 @@ def test_first_user_public_cli_main_answers_version_without_runtime_delegate(mon
     result = cli.main()
     out = capsys.readouterr().out
     assert result == 0
-    assert out.strip() == "media2md 0.9.4"
+    assert out.strip() == "media2md 0.9.5"
     assert calls == []
 
 

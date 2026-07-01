@@ -143,7 +143,7 @@ POLICIES = ROOT / "config" / "provider_policies.json"
 SCHEDULER_STATE = ROOT / "data" / "media2md_scheduler_state.json"
 REGISTRY_DB = ROOT / "data" / "media2md.db"
 AUTH_PROFILES = ROOT / "config" / "auth_profiles.json"
-VERSION = "0.9.4"
+VERSION = "0.9.5"
 REPOSITORY = "danielcanfly/media2md"
 PROVIDERS = ("instagram", "youtube", "tiktok")
 LOCALES = ("zh-TW", "zh-CN", "en", "ja")
@@ -397,7 +397,7 @@ def creator_status(args: argparse.Namespace) -> int:
                 else {"source_url": row.get("source_url")}
             )
         print(f"{row['provider']:<10} {row['handle'][:26]:<26} {str(p['sync']['enabled']).lower():<5} {duration(p['sync']['every_minutes']):<6} {duration(p['sync']['full_every_minutes']):<5} {p['processing']['mode']:<6} {row['tracked'] or 0:<8} {row['completed'] or 0:<5} {row['remaining'] or 0:<5} {totals}")
-        if row["provider"] == "youtube":
+        if row["provider"] in {"youtube", "instagram"} and "catalog_surface" in metadata:
             print(f"  SOURCE surface={metadata['catalog_surface']} catalog_surfaces={','.join(metadata['catalog_surfaces'])} url={metadata.get('source_url') or '-'}")
         else:
             print(f"  SOURCE url={metadata.get('source_url') or '-'}")
@@ -484,6 +484,8 @@ def settings_set(args: argparse.Namespace) -> int:
         atomic_json(CONFIG,config); return settings_show(argparse.Namespace(output=args.output))
     if args.instagram_backend:
         config.setdefault("providers",{}).setdefault("instagram",{})["backend"]=args.instagram_backend
+    if getattr(args, "instagram_catalog_surface", None):
+        config.setdefault("providers",{}).setdefault("instagram",{})["catalog_surface"]=args.instagram_catalog_surface
     if getattr(args, "youtube_js_runtime", None):
         config.setdefault("providers",{}).setdefault("youtube",{})["js_runtime"]=args.youtube_js_runtime
     if getattr(args, "youtube_allow_remote_ejs", None) is not None:
@@ -639,20 +641,25 @@ def creator_run(args: argparse.Namespace) -> int:
         else:
             batch_sizes.update(typed_assignments)
     if provider=="instagram":
-        instagram_batch = batch_sizes.get("instagram_reel", batch_size)
+        instagram_batch = batch_size
         if creator_run_instagram_service is not None:
             return creator_run_instagram_service(
                 args,
                 batch_size=instagram_batch,
+                batch_sizes=batch_sizes,
                 mode=mode,
                 core=core,
                 retry_failed_supported=True,
                 refresh_registry=refresh_registry_legacy,
             )
         cmd=["creator","run",args.creator,"--mode",mode,"--batch-size",str(instagram_batch),"--output",args.output]
+        if batch_sizes:
+            cmd += ["--batch-sizes-json", json.dumps(batch_sizes, sort_keys=True)]
         for name, flag in (("since","--since"),("until","--until"),("rank_from","--rank-from"),("rank_to","--rank-to"),("order","--order"),("max_batches","--max-batches"),("max_runtime_minutes","--max-runtime-minutes"),("max_failures","--max-failures"),("sleep_between_batches","--sleep-between-batches")):
             value=getattr(args,name,None)
             if value is not None: cmd += [flag,str(value)]
+        if getattr(args, "catalog_surface", None):
+            cmd += ["--catalog-surface", str(args.catalog_surface)]
         if args.stop_on_failure: cmd.append("--stop-on-failure")
         if getattr(args, "retry_failed", False): cmd.append("--retry-failed")
         code = core(cmd)
@@ -1177,7 +1184,7 @@ def parser() -> argparse.ArgumentParser:
         pgroup=cs.add_parser("policy"); psub=pgroup.add_subparsers(dest="policy_command",required=True)
         pset=psub.add_parser("set"); pset.add_argument("creator"); pset.add_argument("--provider",choices=PROVIDERS); pset.add_argument("--every",type=parse_duration); pset.add_argument("--full-every",type=parse_duration); pset.add_argument("--quick-window",type=int); pset.add_argument("--mode",choices=("batch","drain")); pset.add_argument("--batch-size",type=int); pset.add_argument("--batch-size-type",action="append",default=[]); pset.add_argument("--max-batches",type=int); pset.add_argument("--max-runtime-minutes",type=int); pset.add_argument("--max-failures",type=int); pset.add_argument("--stop-on-failure",action=argparse.BooleanOptionalAction); pset.add_argument("--sleep-between-batches",type=int); pset.add_argument("--scheduled-processing",action=argparse.BooleanOptionalAction); pset.add_argument("--processing-every",type=parse_duration); pset.add_argument("--since"); pset.add_argument("--until"); pset.add_argument("--rank-from",type=int); pset.add_argument("--rank-to",type=int); pset.add_argument("--order",choices=("newest_first","oldest_first")); pset.set_defaults(func=lambda a:(setattr(a,"provider",resolve_creator_provider(a.creator,a.provider,command_name="creator policy set")) or set_policy(a)))
         pshow2=psub.add_parser("show"); pshow2.add_argument("creator"); pshow2.add_argument("--provider",choices=PROVIDERS); pshow2.add_argument("--output",choices=("human","ndjson"),default="human"); pshow2.set_defaults(func=policy_show)
-        runp=cs.add_parser("run"); runp.add_argument("creator"); runp.add_argument("--provider",choices=PROVIDERS); runp.add_argument("--mode",choices=("batch","drain")); runp.add_argument("--batch-size",type=int); runp.add_argument("--batch-size-type",action="append",default=[]); runp.add_argument("--max-batches",type=int); runp.add_argument("--max-runtime-minutes",type=int); runp.add_argument("--max-failures",type=int); runp.add_argument("--stop-on-failure",action="store_true"); runp.add_argument("--retry-failed",action="store_true",help="Requeue retry_wait/failed Instagram items for this run."); runp.add_argument("--sleep-between-batches",type=int); runp.add_argument("--since"); runp.add_argument("--until"); runp.add_argument("--rank-from",type=int); runp.add_argument("--rank-to",type=int); runp.add_argument("--order",choices=("newest_first","oldest_first")); runp.add_argument("--allow-stale-catalog",action="store_true",help="Continue with the last saved catalog when sync fails. This is an explicit authorization."); runp.add_argument("--output",choices=("human","ndjson"),default="human"); runp.set_defaults(func=creator_run)
+        runp=cs.add_parser("run"); runp.add_argument("creator"); runp.add_argument("--provider",choices=PROVIDERS); runp.add_argument("--mode",choices=("batch","drain")); runp.add_argument("--batch-size",type=int); runp.add_argument("--batch-size-type",action="append",default=[]); runp.add_argument("--max-batches",type=int); runp.add_argument("--max-runtime-minutes",type=int); runp.add_argument("--max-failures",type=int); runp.add_argument("--stop-on-failure",action="store_true"); runp.add_argument("--retry-failed",action="store_true",help="Requeue retry_wait/failed Instagram items for this run."); runp.add_argument("--sleep-between-batches",type=int); runp.add_argument("--since"); runp.add_argument("--until"); runp.add_argument("--rank-from",type=int); runp.add_argument("--rank-to",type=int); runp.add_argument("--order",choices=("newest_first","oldest_first")); runp.add_argument("--allow-stale-catalog",action="store_true",help="Continue with the last saved catalog when sync fails. This is an explicit authorization."); runp.add_argument("--catalog-surface",choices=("reels","posts","mixed")); runp.add_argument("--output",choices=("human","ndjson"),default="human"); runp.set_defaults(func=creator_run)
         delete=cs.add_parser("delete"); delete.add_argument("creator"); delete.add_argument("--provider",choices=PROVIDERS,required=True); delete.add_argument("--yes",action="store_true"); delete.set_defaults(func=lambda a:registry(["delete-creator",a.provider,a.creator]+(["--yes"] if a.yes else [])))
     scheduler=sub.add_parser("scheduler"); ss=scheduler.add_subparsers(dest="scheduler_command",required=True); tick=ss.add_parser("tick"); tick.add_argument("--output",choices=("human","ndjson"),default="human"); tick.add_argument("--non-interactive",action="store_true"); tick.set_defaults(func=scheduler_tick)
     update=sub.add_parser("update")

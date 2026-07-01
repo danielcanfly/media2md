@@ -9,11 +9,16 @@ import re
 import shlex
 import signal
 import subprocess
+import sys
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if sys.path and sys.path[0] == _SCRIPT_DIR:
+    sys.path.append(sys.path.pop(0))
 
 ROOT = Path(__file__).resolve().parents[1]
 COMMAND_LOG_DIR = ROOT / "logs" / "runs" / "commands"
@@ -363,5 +368,9 @@ def classify_transcription_exception(exc: Exception) -> dict[str, Any]:
         root_cause=str(root),
         log_path=log_path,
     ).as_dict()
-from media2md.required_actions import validate_required_action
-from media2md.results import RequiredActionResult
+try:
+    from media2md.required_actions import validate_required_action
+    from media2md.results import RequiredActionResult
+except ModuleNotFoundError:
+    from media2md_contract_compat import validate_required_action
+    from media2md_results_compat import RequiredActionResult

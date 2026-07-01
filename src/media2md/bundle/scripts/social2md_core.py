@@ -631,7 +631,14 @@ def stream_engine(
     return return_code, summary
 
 
-def sync_once(username: str, policy: dict[str, Any], output: str, locale: str, force_full: bool = False) -> tuple[int, dict[str, Any]]:
+def sync_once(
+    username: str,
+    policy: dict[str, Any],
+    output: str,
+    locale: str,
+    force_full: bool = False,
+    catalog_surface: str | None = None,
+) -> tuple[int, dict[str, Any]]:
     args = [
         "status",
         username,
@@ -642,6 +649,8 @@ def sync_once(username: str, policy: dict[str, Any], output: str, locale: str, f
     ]
     if force_full:
         args.append("--force-full-sync")
+    if catalog_surface:
+        args += ["--catalog-surface", str(catalog_surface)]
     return stream_engine(engine_command(*args), output=output, locale=locale)
 
 
@@ -743,9 +752,26 @@ def run_creator(args: argparse.Namespace) -> int:
     max_failures = args.max_failures if args.max_failures is not None else int(policy["processing"].get("max_failures", 10))
     stop_on_failure = args.stop_on_failure or bool(policy["processing"].get("stop_on_failure", False))
     sleep_between = args.sleep_between_batches if args.sleep_between_batches is not None else float(policy["processing"].get("sleep_between_batches", 5))
+    batch_sizes = {}
+    if getattr(args, "batch_sizes_json", None):
+        try:
+            parsed_batch_sizes = json.loads(args.batch_sizes_json)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"--batch-sizes-json must be valid JSON: {exc}") from exc
+        if not isinstance(parsed_batch_sizes, dict):
+            raise RuntimeError("--batch-sizes-json must decode to an object.")
+        batch_sizes = {str(key): int(value) for key, value in parsed_batch_sizes.items()}
+    catalog_surface = getattr(args, "catalog_surface", None)
 
     if not getattr(args, "skip_sync", False):
-        sync_code, _ = sync_once(username, policy, output, locale, force_full=args.force_full_sync)
+        sync_code, _ = sync_once(
+            username,
+            policy,
+            output,
+            locale,
+            force_full=args.force_full_sync,
+            catalog_surface=catalog_surface,
+        )
         if sync_code != 0:
             return sync_code
 
@@ -813,12 +839,16 @@ def run_creator(args: argparse.Namespace) -> int:
             "--pause-seconds", str(args.pause_seconds),
             "--max-failures", str(max_failures),
         ]
+        if batch_sizes:
+            command += ["--batch-sizes-json", json.dumps(batch_sizes, sort_keys=True)]
         if oldest_first: command.append("--oldest-first")
         if args.retry_failed: command.append("--retry-failed")
         if since: command += ["--since", since]
         if until: command += ["--until", until]
         if rank_from is not None: command += ["--rank-from", str(rank_from)]
         if rank_to is not None: command += ["--rank-to", str(rank_to)]
+        if catalog_surface:
+            command += ["--catalog-surface", str(catalog_surface)]
         code, summary = stream_engine(
             engine_command(*command),
             output=output,
@@ -1585,6 +1615,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--stop-on-failure", action="store_true")
     run.add_argument("--sleep-between-batches", type=float)
     run.add_argument("--retry-failed", action="store_true")
+    run.add_argument("--batch-sizes-json")
+    run.add_argument("--catalog-surface", choices=("reels", "posts", "mixed"))
     run.add_argument("--force-full-sync", action="store_true")
     run.add_argument("--pause-seconds", type=float, default=1.0)
     run.add_argument("--output", choices=("human", "ndjson"), default="human")

@@ -28,6 +28,7 @@ RUN_DIR = ROOT / "logs" / "runs"
 PIPELINE_LOCK_PATH = ROOT / "logs" / "pipeline.lock"
 CONFIG_PATH = ROOT / "config" / "social2md.json"
 INSTALOADER_HELPER = ROOT / "scripts" / "instagram_instaloader.py"
+INSTAGRAM_CATALOG_SURFACES = ("reels", "posts", "mixed")
 
 PROFILE_RE = re.compile(
     r"https?://(?:www\.)?instagram\.com/([A-Za-z0-9._]+)/?",
@@ -45,6 +46,23 @@ ACTIVE_STATUSES = {
     "validating",
     "cleaning",
 }
+
+
+def _video_table_columns(connection: sqlite3.Connection) -> set[str]:
+    return {str(row[1]) for row in connection.execute("PRAGMA table_info(videos)").fetchall()}
+
+
+def ensure_video_schema(connection: sqlite3.Connection) -> None:
+    columns = _video_table_columns(connection)
+    statements: list[str] = []
+    if "media_type" not in columns:
+        statements.append("ALTER TABLE videos ADD COLUMN media_type TEXT")
+    if "processing_class" not in columns:
+        statements.append("ALTER TABLE videos ADD COLUMN processing_class TEXT")
+    if statements:
+        for statement in statements:
+            connection.execute(statement)
+        connection.commit()
 
 
 def utc_now() -> datetime:
@@ -108,12 +126,89 @@ def instagram_backend() -> str:
     return value if value in {"auto", "gallery-dl", "instaloader"} else "auto"
 
 
-def fetch_page_instaloader(username: str, start: int, end: int, timeout_seconds: int) -> list[dict[str, Any]]:
+def instagram_catalog_surface(default: str = "reels") -> str:
+    try:
+        payload = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        value = payload.get("providers", {}).get("instagram", {}).get("catalog_surface", default)
+    except (FileNotFoundError, json.JSONDecodeError, TypeError):
+        value = default
+    normalized = str(value or default).strip().lower()
+    return normalized if normalized in INSTAGRAM_CATALOG_SURFACES else default
+
+
+def normalize_catalog_surface(value: str | None, *, default: str = "reels") -> str:
+    normalized = str(value or default).strip().lower()
+    if normalized not in INSTAGRAM_CATALOG_SURFACES:
+        raise RuntimeError(
+            "Unsupported Instagram catalog surface. Use reels, posts, or mixed."
+        )
+    return normalized
+
+
+def catalog_surface_label(surface: str) -> str:
+    return normalize_catalog_surface(surface)
+
+
+def profile_url_for_surface(username: str, surface: str) -> str:
+    normalized = normalize_catalog_surface(surface)
+    if normalized == "reels":
+        return f"https://www.instagram.com/{username}/reels/"
+    return f"https://www.instagram.com/{username}/"
+
+
+def catalog_surfaces_for_mode(surface: str) -> list[str]:
+    normalized = normalize_catalog_surface(surface)
+    if normalized == "mixed":
+        return ["reels", "posts"]
+    return [normalized]
+
+
+def infer_item_surface(metadata: dict[str, Any]) -> str:
+    raw_surface = str(metadata.get("surface") or "").strip().lower()
+    if raw_surface in {"reel", "post"}:
+        return raw_surface
+    typename = str(metadata.get("typename") or metadata.get("__typename") or "").strip()
+    product_type = str(metadata.get("product_type") or "").strip().lower()
+    if product_type in {"clips", "igtv", "igtv_video", "reels"}:
+        return "reel"
+    if typename in {"GraphImage", "GraphSidecar"}:
+        return "post"
+    if typename in {"GraphVideo"}:
+        return "reel" if product_type in {"clips", "reels"} else "post"
+    if bool(metadata.get("is_video")):
+        return "reel"
+    return "post"
+
+
+def infer_item_media_type(metadata: dict[str, Any], surface: str) -> str:
+    if surface == "reel":
+        return "instagram_reel"
+    sidecar_count = int(metadata.get("sidecar_count") or metadata.get("count") or metadata.get("asset_count") or 0)
+    if sidecar_count > 1:
+        return "instagram_carousel"
+    assets = metadata.get("assets")
+    if isinstance(assets, list) and len(assets) > 1:
+        return "instagram_carousel"
+    return "instagram_post"
+
+
+def fetch_page_instaloader(username: str, start: int, end: int, timeout_seconds: int, catalog_surface: str) -> list[dict[str, Any]]:
     if not INSTALOADER_HELPER.is_file():
         raise RuntimeError(f"Instaloader fallback helper is missing: {INSTALOADER_HELPER}")
     try:
         result = subprocess.run(
-            [sys.executable, str(INSTALOADER_HELPER), "catalog", username, "--start", str(start), "--end", str(end)],
+            [
+                sys.executable,
+                str(INSTALOADER_HELPER),
+                "catalog",
+                username,
+                "--start",
+                str(start),
+                "--end",
+                str(end),
+                "--surface",
+                normalize_catalog_surface(catalog_surface),
+            ],
             cwd=ROOT, capture_output=True, text=True, timeout=timeout_seconds, check=False,
         )
     except subprocess.TimeoutExpired as exc:
@@ -134,6 +229,7 @@ def connect() -> sqlite3.Connection:
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     connection.execute("PRAGMA journal_mode = WAL")
+    ensure_video_schema(connection)
     return connection
 
 
@@ -228,6 +324,16 @@ def catalog_current_shortcodes(catalog: dict[str, Any]) -> set[str]:
 def migrate_catalog(payload: dict[str, Any]) -> dict[str, Any]:
     payload.setdefault("version", 3)
     payload["version"] = max(int(payload.get("version", 1)), 3)
+    surface = normalize_catalog_surface(payload.get("catalog_surface"), default="reels")
+    payload["catalog_surface"] = surface
+    payload.setdefault("catalog_surfaces", catalog_surfaces_for_mode(surface))
+    payload["catalog_surfaces"] = [
+        normalize_catalog_surface(item, default="reels")
+        for item in payload.get("catalog_surfaces", catalog_surfaces_for_mode(surface))
+    ]
+    creator = str(payload.get("creator") or "").strip()
+    if creator:
+        payload["profile_url"] = str(payload.get("profile_url") or profile_url_for_surface(creator, surface))
     payload.setdefault("current_total", len(payload.get("items", [])))
     payload.setdefault("current_total_exact", bool(payload.get("complete")))
     payload.setdefault("last_full_sync_at", None)
@@ -243,11 +349,14 @@ def migrate_catalog(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 
-def new_catalog(username: str, page_size: int, max_reels: int) -> dict[str, Any]:
+def new_catalog(username: str, page_size: int, max_reels: int, catalog_surface: str) -> dict[str, Any]:
+    surface = normalize_catalog_surface(catalog_surface)
     return {
         "version": 3,
         "creator": username,
-        "profile_url": f"https://www.instagram.com/{username}/reels/",
+        "profile_url": profile_url_for_surface(username, surface),
+        "catalog_surface": surface,
+        "catalog_surfaces": catalog_surfaces_for_mode(surface),
         "created_at": iso_now(),
         "updated_at": iso_now(),
         "page_size": page_size,
@@ -292,6 +401,7 @@ def parse_gallery_payload(
         raise RuntimeError("gallery-dl returned an unexpected JSON root.")
 
     items: dict[str, dict[str, Any]] = {}
+    item_assets: dict[str, list[dict[str, Any]]] = {}
 
     for event in payload:
         if not (
@@ -317,14 +427,12 @@ def parse_gallery_payload(
         if owner and str(owner).lower() != username.lower():
             continue
 
+        existing = items.get(str(shortcode))
         item = {
             "shortcode": str(shortcode),
             "published_at": normalize_datetime(
                 metadata.get("post_date")
                 or metadata.get("date")
-            ),
-            "source_url": (
-                f"https://www.instagram.com/reel/{shortcode}/"
             ),
             "caption": str(metadata.get("description") or ""),
             "media_id": str(
@@ -333,14 +441,55 @@ def parse_gallery_payload(
                 or ""
             ),
         }
+        surface = infer_item_surface(metadata)
+        media_type = infer_item_media_type(metadata, surface)
+        item["surface"] = surface
+        item["media_type"] = media_type
+        item["processing_class"] = media_type
+        item["source_url"] = f"https://www.instagram.com/{'reel' if surface == 'reel' else 'p'}/{shortcode}/"
+        item["assets"] = list(existing.get("assets", [])) if existing else []
 
-        existing = items.get(item["shortcode"])
+        event_type = event[0]
+        event_url = str(event[1] or "")
+        if event_type == 3:
+            display_url = str(metadata.get("display_url") or event_url or "").strip()
+            video_url = str(metadata.get("video_url") or "").strip()
+            extension = str(metadata.get("extension") or "").strip().lower()
+            is_video = bool(video_url) or extension in {"mp4", "mov", "m4v", "webm"}
+            asset_url = video_url if is_video and video_url else display_url or event_url
+            if asset_url:
+                assets = item_assets.setdefault(item["shortcode"], [])
+                assets.append(
+                    {
+                        "index": int(metadata.get("num") or len(assets) + 1),
+                        "kind": "video" if is_video else "image",
+                        "source_url": asset_url,
+                        "display_url": display_url or asset_url,
+                        "width": metadata.get("width"),
+                        "height": metadata.get("height"),
+                        "ocr_candidate": not is_video,
+                    }
+                )
+                item["assets"] = list(assets)
+                if item["surface"] != "reel":
+                    sidecar_count = int(metadata.get("sidecar_count") or metadata.get("count") or len(assets) or 0)
+                    image_count = len([asset for asset in assets if str(asset.get("kind") or "") == "image"])
+                    video_count = len([asset for asset in assets if str(asset.get("kind") or "") == "video"])
+                    asset_count = len(assets)
+                    item["media_type"] = "instagram_carousel" if max(sidecar_count, image_count, video_count, asset_count, 0) > 1 else "instagram_post"
+                    item["processing_class"] = item["media_type"]
+
         if (
             existing is None
             or parse_datetime(item["published_at"])
             > parse_datetime(existing["published_at"])
         ):
             items[item["shortcode"]] = item
+        elif existing is not None and item_assets.get(item["shortcode"]):
+            existing["assets"] = list(item_assets[item["shortcode"]])
+            if existing.get("surface") != "reel":
+                existing["media_type"] = item["media_type"]
+                existing["processing_class"] = item["processing_class"]
 
     return sorted(
         items.values(),
@@ -359,7 +508,9 @@ def fetch_page(
     end: int,
     timeout_seconds: int,
     force_ipv4: bool,
+    catalog_surface: str,
 ) -> list[dict[str, Any]]:
+    surface = normalize_catalog_surface(catalog_surface)
     backend = instagram_backend()
     gallery_error: Exception | None = None
     if backend in {"auto", "gallery-dl"}:
@@ -378,7 +529,7 @@ def fetch_page(
             ]
             if force_ipv4:
                 command.append("--force-ipv4")
-            command.append(f"https://www.instagram.com/{username}/reels/")
+            command.append(profile_url_for_surface(username, surface))
             result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=timeout_seconds, check=False)
             if result.returncode != 0:
                 raise RuntimeError("gallery-dl page request failed: " + (result.stderr.strip()[-3000:] or "unknown error"))
@@ -397,7 +548,7 @@ def fetch_page(
             )
     if backend in {"auto", "instaloader"}:
         try:
-            items = fetch_page_instaloader(username, start, end, timeout_seconds)
+            items = fetch_page_instaloader(username, start, end, timeout_seconds, surface)
             print(f"INSTAGRAM_BACKEND_SELECTED creator={username} backend=instaloader", file=sys.stderr, flush=True)
             return items
         except Exception as instaloader_error:
@@ -451,12 +602,16 @@ def new_sync_checkpoint(
     username: str,
     page_size: int,
     max_reels: int,
+    catalog_surface: str,
 ) -> dict[str, Any]:
+    surface = normalize_catalog_surface(catalog_surface)
     return {
         "version": 3,
         "type": "creator_full_sync_checkpoint",
         "creator": username,
-        "profile_url": f"https://www.instagram.com/{username}/reels/",
+        "profile_url": profile_url_for_surface(username, surface),
+        "catalog_surface": surface,
+        "catalog_surfaces": catalog_surfaces_for_mode(surface),
         "started_at": iso_now(),
         "updated_at": iso_now(),
         "page_size": page_size,
@@ -542,11 +697,17 @@ def promote_completed_sync(
     )
     current_total = len(ordered)
     completed_at = iso_now()
+    surface = normalize_catalog_surface(
+        checkpoint.get("catalog_surface") or (old_catalog or {}).get("catalog_surface"),
+        default="reels",
+    )
 
     final_catalog = {
         "version": 3,
         "creator": username,
-        "profile_url": f"https://www.instagram.com/{username}/reels/",
+        "profile_url": profile_url_for_surface(username, surface),
+        "catalog_surface": surface,
+        "catalog_surfaces": catalog_surfaces_for_mode(surface),
         "created_at": (
             (old_catalog or {}).get("created_at")
             or checkpoint.get("started_at")
@@ -649,6 +810,7 @@ def perform_full_sync(
     show_ids: bool,
     restart: bool,
     skip_if_fresh_minutes: float = 0.0,
+    catalog_surface: str,
 ) -> int:
     if not cookies_file.is_file():
         raise RuntimeError(f"Cookie file not found: {cookies_file}")
@@ -685,24 +847,34 @@ def perform_full_sync(
         checkpoint = json.loads(
             checkpoint_file.read_text(encoding="utf-8")
         )
+        checkpoint = migrate_catalog(checkpoint)
         if checkpoint.get("creator", "").lower() != username.lower():
             raise RuntimeError(
                 "Sync checkpoint creator does not match the requested creator."
+            )
+        checkpoint_surface = normalize_catalog_surface(checkpoint.get("catalog_surface"), default="reels")
+        if checkpoint_surface != normalize_catalog_surface(catalog_surface):
+            raise RuntimeError(
+                "Sync checkpoint surface does not match the requested catalog surface. "
+                "Use --refresh to start over with a different surface."
             )
         print("CREATOR_SYNC_RESUMED")
         print(f"creator={username}")
         print(f"cataloged={len(checkpoint.get('items', []))}")
         print(f"next_start={checkpoint.get('next_start', 1)}")
+        print(f"catalog_surface={checkpoint_surface}")
     else:
         checkpoint = new_sync_checkpoint(
             username,
             page_size,
             max_reels,
+            catalog_surface,
         )
         atomic_json(checkpoint_file, checkpoint)
         print("CREATOR_SYNC_STARTED")
         print(f"creator={username}")
         print(f"page_size={page_size}")
+        print(f"catalog_surface={normalize_catalog_surface(catalog_surface)}")
 
     existing = {
         item["shortcode"]: item
@@ -752,6 +924,7 @@ def perform_full_sync(
                 end,
                 page_timeout,
                 force_ipv4,
+                normalize_catalog_surface(catalog_surface),
             )
         except Exception as exc:
             checkpoint["last_error"] = f"{type(exc).__name__}: {exc}"
@@ -891,6 +1064,7 @@ def perform_quick_sync(
     page_timeout: int,
     force_ipv4: bool,
     show_ids: bool,
+    catalog_surface: str,
 ) -> int:
     if not cookies_file.is_file():
         raise RuntimeError(f"Cookie file not found: {cookies_file}")
@@ -903,6 +1077,10 @@ def perform_quick_sync(
         )
 
     old_catalog = load_catalog(username)
+    surface = normalize_catalog_surface(
+        catalog_surface or old_catalog.get("catalog_surface"),
+        default="reels",
+    )
     old_items = {
         item["shortcode"]: item
         for item in old_catalog.get("items", [])
@@ -934,6 +1112,7 @@ def perform_quick_sync(
         probe_end,
         page_timeout,
         force_ipv4,
+        surface,
     )
 
     # Small accounts are fully covered by this request. Promote the result
@@ -946,6 +1125,7 @@ def perform_quick_sync(
             username,
             quick_size,
             max(quick_size, len(page_items)),
+            surface,
         )
         checkpoint.update(
             {
@@ -1006,6 +1186,9 @@ def perform_quick_sync(
     updated = {
         **old_catalog,
         "version": 3,
+        "profile_url": profile_url_for_surface(username, surface),
+        "catalog_surface": surface,
+        "catalog_surfaces": catalog_surfaces_for_mode(surface),
         "updated_at": completed_at,
         "current_total": len(ordered),
         # Quick sync cannot detect arbitrary old deletions on large accounts.
@@ -1090,6 +1273,7 @@ def auto_sync_catalog(
     force_ipv4: bool,
     force_full_sync: bool,
     restart_sync: bool,
+    catalog_surface: str,
 ) -> int:
     catalog: dict[str, Any] | None = None
     catalog_file = catalog_path(username)
@@ -1129,6 +1313,7 @@ def auto_sync_catalog(
             show_ids=False,
             restart=restart_sync,
             skip_if_fresh_minutes=0.0,
+            catalog_surface=catalog_surface,
         )
 
     if quick_sync_size > 0:
@@ -1146,6 +1331,7 @@ def auto_sync_catalog(
             page_timeout=page_timeout,
             force_ipv4=force_ipv4,
             show_ids=False,
+            catalog_surface=catalog_surface,
         )
 
     print("AUTO_SYNC_DECISION mode=local")
@@ -1156,6 +1342,10 @@ def auto_sync_catalog(
 def command_quick_sync(args: argparse.Namespace) -> int:
     username = normalize_creator(args.creator)
     cookies_file = args.cookies_file.expanduser().resolve()
+    catalog_surface = normalize_catalog_surface(
+        getattr(args, "catalog_surface", None),
+        default=instagram_catalog_surface(),
+    )
 
     with require_pipeline_idle():
         return perform_quick_sync(
@@ -1165,11 +1355,16 @@ def command_quick_sync(args: argparse.Namespace) -> int:
             page_timeout=args.page_timeout,
             force_ipv4=args.force_ipv4,
             show_ids=args.show_ids,
+            catalog_surface=catalog_surface,
         )
 
 def command_catalog(args: argparse.Namespace) -> int:
     username = normalize_creator(args.creator)
     cookies_file = args.cookies_file.expanduser().resolve()
+    catalog_surface = normalize_catalog_surface(
+        getattr(args, "catalog_surface", None),
+        default=instagram_catalog_surface(),
+    )
 
     with require_pipeline_idle():
         return perform_full_sync(
@@ -1183,6 +1378,7 @@ def command_catalog(args: argparse.Namespace) -> int:
             show_ids=args.show_ids,
             restart=args.refresh,
             skip_if_fresh_minutes=0.0,
+            catalog_surface=catalog_surface,
         )
 
 def creator_row(connection: sqlite3.Connection, username: str) -> sqlite3.Row:
@@ -1252,34 +1448,103 @@ def queue_item(
     item: dict[str, Any],
 ) -> None:
     now = iso_now()
+    columns = _video_table_columns(connection)
+    insert_columns = [
+        "creator_id",
+        "shortcode",
+        "source_url",
+        "published_at",
+        "caption",
+        "discovered_at",
+        "status",
+        "attempt_count",
+        "created_at",
+        "updated_at",
+    ]
+    values: list[Any] = [
+        creator_id,
+        item["shortcode"],
+        item["source_url"],
+        item["published_at"],
+        item.get("caption", ""),
+        now,
+        "pending",
+        0,
+        now,
+        now,
+    ]
+    if "media_type" in columns:
+        insert_columns.append("media_type")
+        values.append(item.get("media_type"))
+    if "processing_class" in columns:
+        insert_columns.append("processing_class")
+        values.append(item.get("processing_class") or item.get("media_type"))
+    placeholders = ", ".join("?" for _ in insert_columns)
     connection.execute(
-        """
-        INSERT INTO videos (
-            creator_id,
-            shortcode,
-            source_url,
-            published_at,
-            caption,
-            discovered_at,
-            status,
-            attempt_count,
-            created_at,
-            updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)
+        f"""
+        INSERT INTO videos ({", ".join(insert_columns)})
+        VALUES ({placeholders})
         """,
-        (
-            creator_id,
-            item["shortcode"],
-            item["source_url"],
-            item["published_at"],
-            item.get("caption", ""),
-            now,
-            now,
-            now,
-        ),
+        values,
     )
     connection.commit()
+
+
+def item_processing_class(item: dict[str, Any]) -> str:
+    value = str(item.get("processing_class") or item.get("media_type") or "").strip()
+    if value:
+        return value
+    surface = str(item.get("surface") or "").strip().lower()
+    if surface == "reel":
+        return "instagram_reel"
+    return "instagram_post"
+
+
+def batch_type_quotas(batch_sizes: dict[str, Any] | None) -> dict[str, int]:
+    quotas: dict[str, int] = {}
+    for key, raw in (batch_sizes or {}).items():
+        if str(key) not in {"instagram_reel", "instagram_post", "instagram_carousel"}:
+            continue
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            quotas[str(key)] = value
+    return quotas
+
+
+def select_batch_items(
+    candidates: list[dict[str, Any]],
+    *,
+    batch_size: int,
+    batch_sizes: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    quotas = batch_type_quotas(batch_sizes)
+    if not quotas:
+        selected = candidates[:batch_size]
+        composition: dict[str, int] = {}
+        for item in selected:
+            item_class = item_processing_class(item)
+            composition[item_class] = composition.get(item_class, 0) + 1
+        return selected, composition
+
+    selected: list[dict[str, Any]] = []
+    composition: dict[str, int] = {}
+    for item in candidates:
+        item_class = item_processing_class(item)
+        limit = quotas.get(item_class)
+        if limit is None:
+            continue
+        if composition.get(item_class, 0) >= limit:
+            continue
+        selected.append(item)
+        composition[item_class] = composition.get(item_class, 0) + 1
+        if len(selected) >= batch_size:
+            break
+        if all(composition.get(name, 0) >= value for name, value in quotas.items()):
+            break
+    return selected, composition
 
 
 
@@ -1469,6 +1734,19 @@ def command_run(args: argparse.Namespace) -> int:
         args.cookies_file.expanduser().resolve() if args.cookies_file is not None else None
     )
     catalog_cookies_file = explicit_cookies_file or COOKIE_FILE
+    requested_surface = normalize_catalog_surface(
+        getattr(args, "catalog_surface", None),
+        default=load_catalog(username).get("catalog_surface") if catalog_path(username).is_file() else instagram_catalog_surface(),
+    )
+    batch_sizes: dict[str, Any] = {}
+    if getattr(args, "batch_sizes_json", None):
+        try:
+            parsed = json.loads(args.batch_sizes_json)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"--batch-sizes-json must be valid JSON: {exc}") from exc
+        if not isinstance(parsed, dict):
+            raise RuntimeError("--batch-sizes-json must decode to an object.")
+        batch_sizes = dict(parsed)
 
     if not args.no_auto_sync:
         with require_pipeline_idle():
@@ -1487,6 +1765,7 @@ def command_run(args: argparse.Namespace) -> int:
                 force_ipv4=args.force_ipv4,
                 force_full_sync=args.force_full_sync,
                 restart_sync=args.restart_sync,
+                catalog_surface=requested_surface,
             )
         if sync_code != 0:
             print(
@@ -1563,9 +1842,14 @@ def command_run(args: argparse.Namespace) -> int:
                 rank_from=args.rank_from,
                 rank_to=args.rank_to,
             )
-            selected = candidates[: args.batch_size]
+            selected, composition = select_batch_items(
+                candidates,
+                batch_size=args.batch_size,
+                batch_sizes=batch_sizes,
+            )
 
             report["selected_count"] = len(selected)
+            report["composition"] = composition
 
             if selected:
                 dates = [
@@ -1595,6 +1879,7 @@ def command_run(args: argparse.Namespace) -> int:
             print(f"rank_to={args.rank_to or '-'}")
             print(f"selected={total}")
             print(f"batch_size_requested={args.batch_size}")
+            print(f"composition={json.dumps(composition, ensure_ascii=False, sort_keys=True)}")
             print(
                 f"selected_newest={report['selected_newest'] or '-'}"
             )
@@ -1830,6 +2115,7 @@ def command_run(args: argparse.Namespace) -> int:
             print(f"processed={len(report['items'])}")
             print(f"completed={report['completed']}")
             print(f"failed={report['failed']}")
+            print(f"composition={json.dumps(report.get('composition') or {}, ensure_ascii=False, sort_keys=True)}")
             print(
                 f"date_newest={report['selected_newest'] or '-'}"
             )
@@ -1884,6 +2170,10 @@ def command_run(args: argparse.Namespace) -> int:
 
 def command_status(args: argparse.Namespace) -> int:
     username = normalize_creator(args.creator)
+    requested_surface = normalize_catalog_surface(
+        getattr(args, "catalog_surface", None),
+        default=instagram_catalog_surface(),
+    )
 
     if not args.no_sync:
         cookies_file = args.cookies_file.expanduser().resolve()
@@ -1903,11 +2193,16 @@ def command_status(args: argparse.Namespace) -> int:
                 force_ipv4=args.force_ipv4,
                 force_full_sync=args.force_full_sync,
                 restart_sync=args.restart_sync,
+                catalog_surface=requested_surface,
             )
         if sync_code != 0:
             return sync_code
 
     catalog = load_catalog(username)
+    catalog_surface = normalize_catalog_surface(
+        catalog.get("catalog_surface"),
+        default=requested_surface,
+    )
     items = list(catalog.get("items", []))
 
     connection = connect()
@@ -1935,6 +2230,8 @@ def command_status(args: argparse.Namespace) -> int:
 
     print("CREATOR_BULK_STATUS")
     print(f"creator={username}")
+    print(f"catalog_surface={catalog_surface}")
+    print(f"catalog_surfaces={','.join(catalog.get('catalog_surfaces', catalog_surfaces_for_mode(catalog_surface)))}")
     print(f"current_accessible_total={summary['catalog_total']}")
     print(f"current_known_total={summary['catalog_total']}")
     print(
@@ -2084,6 +2381,7 @@ def build_parser() -> argparse.ArgumentParser:
         )
         command.add_argument("--force-ipv4", action="store_true")
         command.add_argument("--show-ids", action="store_true")
+        command.add_argument("--catalog-surface", choices=INSTAGRAM_CATALOG_SURFACES, default=None)
         command.set_defaults(function=command_catalog)
 
     command = commands.add_parser(
@@ -2108,6 +2406,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     command.add_argument("--force-ipv4", action="store_true")
     command.add_argument("--show-ids", action="store_true")
+    command.add_argument("--catalog-surface", choices=INSTAGRAM_CATALOG_SURFACES, default=None)
     command.set_defaults(function=command_quick_sync)
 
     command = commands.add_parser(
@@ -2214,6 +2513,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Discard any incomplete sync checkpoint before auto-sync.",
     )
+    command.add_argument("--catalog-surface", choices=INSTAGRAM_CATALOG_SURFACES, default=None)
+    command.add_argument("--batch-sizes-json")
     command.set_defaults(function=command_run)
 
     command = commands.add_parser(
@@ -2263,6 +2564,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=900,
     )
     command.add_argument("--restart-sync", action="store_true")
+    command.add_argument("--catalog-surface", choices=INSTAGRAM_CATALOG_SURFACES, default=None)
     command.set_defaults(function=command_status)
 
     return parser

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
 import json
 import os
 import shutil
@@ -35,6 +36,7 @@ LOCK_TTL_HOURS = 12
 DEFAULT_MODEL = "mlx-community/whisper-large-v3-turbo"
 MAX_ATTEMPTS = 5
 RETRY_DELAYS_MINUTES = (10, 60, 360, 1440)
+POST_MEDIA_TYPES = {"instagram_post", "instagram_carousel"}
 
 
 def utc_now() -> datetime:
@@ -377,6 +379,149 @@ def download_media(
         raise
 
 
+def _generic_media_module():
+    return importlib.import_module("generic_media")
+
+
+def _row_has_column(row: sqlite3.Row, name: str) -> bool:
+    return name in row.keys()
+
+
+def _legacy_media_type(video: sqlite3.Row) -> str:
+    if _row_has_column(video, "media_type") and video["media_type"]:
+        return str(video["media_type"])
+    source_url = str(video["source_url"] or "")
+    if "/p/" in source_url:
+        return "instagram_post"
+    return "instagram_reel"
+
+
+def _legacy_processing_class(video: sqlite3.Row) -> str:
+    if _row_has_column(video, "processing_class") and video["processing_class"]:
+        return str(video["processing_class"])
+    return _legacy_media_type(video)
+
+
+def _update_video_completion(
+    conn: sqlite3.Connection,
+    video: sqlite3.Row,
+    *,
+    final_path: Path,
+    digest: str,
+    media_type: str | None = None,
+    processing_class: str | None = None,
+) -> None:
+    columns = {str(column[1]) for column in conn.execute("PRAGMA table_info(videos)").fetchall()}
+    if {"media_type", "processing_class"}.issubset(columns):
+        conn.execute(
+            """
+            UPDATE videos
+            SET status = 'completed', markdown_path = ?, markdown_sha256 = ?,
+                media_type = ?, processing_class = ?,
+                completed_at = ?, next_retry_at = NULL, last_error = NULL,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                str(final_path.relative_to(ROOT)),
+                digest,
+                media_type or _legacy_media_type(video),
+                processing_class or _legacy_processing_class(video),
+                iso_now(),
+                iso_now(),
+                video["id"],
+            ),
+        )
+    else:
+        conn.execute(
+            """
+            UPDATE videos
+            SET status = 'completed', markdown_path = ?, markdown_sha256 = ?,
+                completed_at = ?, next_retry_at = NULL, last_error = NULL,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                str(final_path.relative_to(ROOT)),
+                digest,
+                iso_now(),
+                iso_now(),
+                video["id"],
+            ),
+        )
+    conn.commit()
+
+
+def process_instagram_post(
+    conn: sqlite3.Connection,
+    video: sqlite3.Row,
+) -> dict[str, Any]:
+    generic_media = _generic_media_module()
+    username = str(video["username"])
+    shortcode = str(video["shortcode"])
+    media_type = _legacy_media_type(video)
+    item_class = _legacy_processing_class(video)
+    artifact_stem = safe_artifact_stem("instagram", shortcode)
+    creator = generic_media.safe(username)
+    work = generic_media.DOWNLOADS / "instagram" / creator / artifact_stem
+    transcript_dir = generic_media.TRANSCRIPTS / "instagram" / creator / artifact_stem
+    work.mkdir(parents=True, exist_ok=True)
+    transcript_dir.mkdir(parents=True, exist_ok=True)
+    conn.execute("UPDATE videos SET status='rendering', updated_at=? WHERE id=?", (iso_now(), video["id"]))
+    conn.commit()
+    try:
+        metadata = generic_media._hydrate_instagram_post_metadata(str(video["source_url"]), creator=creator)
+        metadata.update(
+            {
+                "provider": "instagram",
+                "external_id": shortcode,
+                "source_url": str(video["source_url"]),
+                "description": str(video["caption"] or metadata.get("description") or ""),
+            }
+        )
+        final_path = ROOT / "markdown" / "instagram" / creator / generic_media.output_bucket(media_type) / f"{artifact_stem}.md"
+        final_path.parent.mkdir(parents=True, exist_ok=True)
+        content = generic_media.render_instagram_post_markdown(
+            metadata=metadata,
+            creator=creator,
+            external_id=shortcode,
+            media_type=media_type,
+            item_class=item_class,
+            artifact_stem=artifact_stem,
+            canonical_source=str(video["source_url"]),
+            published_at=str(video["published_at"] or ""),
+            work=work,
+        )
+        tmp = final_path.with_suffix(".md.tmp")
+        tmp.write_text(content, encoding="utf-8")
+        if tmp.stat().st_size < 100:
+            raise RuntimeError("Rendered Instagram post Markdown failed validation.")
+        os.replace(tmp, final_path)
+        digest = generic_media.sha256(final_path)
+        conn.execute("UPDATE videos SET status='cleaning', updated_at=? WHERE id=?", (iso_now(), video["id"]))
+        conn.commit()
+        generic_media.cleanup_workspace_paths(work, transcript_dir)
+        _update_video_completion(
+            conn,
+            video,
+            final_path=final_path,
+            digest=digest,
+            media_type=media_type,
+            processing_class=item_class,
+        )
+        return {
+            "creator": username,
+            "shortcode": shortcode,
+            "attempt_count": int(video["attempt_count"]),
+            "status": "completed",
+            "markdown_path": str(final_path.relative_to(ROOT)),
+            "error": None,
+        }
+    except Exception:
+        generic_media._cleanup_partial_downloads(work)
+        raise
+
+
 def transcribe_media(
     files: list[Path],
     output_dir: Path,
@@ -521,6 +666,8 @@ def process_one(
         "error": None,
     }
     try:
+        if _legacy_media_type(video) in POST_MEDIA_TYPES:
+            return process_instagram_post(conn, video)
         print("  STAGE downloading")
         media = run_stage(
             conn, video["id"], run_id, "download",
@@ -554,23 +701,7 @@ def process_one(
             conn, video["id"], run_id, "cleanup",
             lambda: cleanup(download_dir, transcript_dir, temp_dir),
         )
-        conn.execute(
-            """
-            UPDATE videos
-            SET status = 'completed', markdown_path = ?, markdown_sha256 = ?,
-                completed_at = ?, next_retry_at = NULL, last_error = NULL,
-                updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                str(final_path.relative_to(ROOT)),
-                digest,
-                iso_now(),
-                iso_now(),
-                video["id"],
-            ),
-        )
-        conn.commit()
+        _update_video_completion(conn, video, final_path=final_path, digest=digest)
         result["status"] = "completed"
         result["markdown_path"] = str(final_path.relative_to(ROOT))
     except Exception as exc:

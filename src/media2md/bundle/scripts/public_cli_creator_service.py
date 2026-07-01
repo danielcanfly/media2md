@@ -51,6 +51,9 @@ def creator_sync_common(
         cmd = [sys.executable, str(engine), "status", args.creator]
         if args.force_full:
             cmd.append("--force-full-sync")
+        catalog_surface = getattr(args, "instagram_catalog_surface", None) or getattr(args, "catalog_surface", None)
+        if catalog_surface:
+            cmd += ["--catalog-surface", str(catalog_surface)]
         return run(cmd)
     mode = "full" if args.force_full else "quick"
     policy = effective_policy(provider, normalize_creator(provider, args.creator))
@@ -67,6 +70,13 @@ def _youtube_surface_from_source_url(source_url: str | None) -> str:
         if path.endswith(f"/{surface}"):
             return surface
     return "videos"
+
+
+def _instagram_surface_from_source_url(source_url: str | None) -> str:
+    path = urlsplit(str(source_url or "")).path.rstrip("/").lower()
+    if path.endswith("/reels"):
+        return "reels"
+    return "posts"
 
 
 def emit_creator_run_catalog_context(
@@ -92,6 +102,9 @@ def emit_creator_run_catalog_context(
         surfaces = list(youtube_catalog_surfaces() if youtube_catalog_surfaces is not None else ("videos", "shorts"))
         payload_data["catalog_surface"] = _youtube_surface_from_source_url(source_url)
         payload_data["catalog_surfaces"] = surfaces
+    elif provider == "instagram":
+        payload_data["catalog_surface"] = _instagram_surface_from_source_url(source_url)
+        payload_data["catalog_surfaces"] = ["reels", "posts"] if payload_data["catalog_surface"] == "posts" else ["reels"]
     payload = make_output_model(
         event="creator_run_catalog_context",
         schema="media2md.cli.creator_run_catalog_context/v1",
@@ -114,7 +127,7 @@ def emit_creator_run_catalog_context(
         print(f"catalog_last_synced_at={payload['catalog_last_synced_at'] or '-'}", flush=True)
         print(f"catalog_exact={str(payload['catalog_exact']).lower()}", flush=True)
         print(f"tracked={payload['tracked']}", flush=True)
-        if provider == "youtube":
+        if provider in {"youtube", "instagram"}:
             print(f"catalog_surface={payload['catalog_surface']}", flush=True)
             print(f"catalog_surfaces={','.join(payload['catalog_surfaces'])}", flush=True)
         print(f"catalog_source_url={source_url or '-'}", flush=True)
@@ -198,12 +211,15 @@ def creator_run_instagram(
     args,
     *,
     batch_size: int,
+    batch_sizes: dict[str, int] | None,
     mode: str,
     core: Callable[[list[str]], int],
     retry_failed_supported: bool,
     refresh_registry: Callable[[], None],
 ) -> int:
     cmd = ["creator", "run", args.creator, "--mode", mode, "--batch-size", str(batch_size), "--output", args.output]
+    if batch_sizes:
+        cmd += ["--batch-sizes-json", json.dumps(batch_sizes, sort_keys=True)]
     for name, flag in (
         ("since", "--since"),
         ("until", "--until"),
@@ -218,6 +234,9 @@ def creator_run_instagram(
         value = getattr(args, name, None)
         if value is not None:
             cmd += [flag, str(value)]
+    catalog_surface = getattr(args, "instagram_catalog_surface", None) or getattr(args, "catalog_surface", None)
+    if catalog_surface:
+        cmd += ["--catalog-surface", str(catalog_surface)]
     if args.stop_on_failure:
         cmd.append("--stop-on-failure")
     if retry_failed_supported and getattr(args, "retry_failed", False):

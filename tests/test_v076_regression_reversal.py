@@ -62,6 +62,85 @@ def test_instagram_default_worker_command_restores_legacy_cookie_resolution():
     assert explicit[-2:] == ["--cookies-file", "/tmp/ig-cookies.txt"]
 
 
+def test_instagram_batch_selection_can_mix_reels_and_posts():
+    import creator_bulk
+
+    candidates = [
+        {"shortcode": "REEL001", "processing_class": "instagram_reel", "published_at": "2026-07-01T03:00:00+00:00"},
+        {"shortcode": "POST001", "processing_class": "instagram_post", "published_at": "2026-07-01T02:00:00+00:00"},
+        {"shortcode": "POST002", "processing_class": "instagram_carousel", "published_at": "2026-07-01T01:00:00+00:00"},
+        {"shortcode": "REEL002", "processing_class": "instagram_reel", "published_at": "2026-07-01T00:00:00+00:00"},
+    ]
+
+    selected, composition = creator_bulk.select_batch_items(
+        candidates,
+        batch_size=4,
+        batch_sizes={"instagram_reel": 1, "instagram_post": 1, "instagram_carousel": 1},
+    )
+    assert [item["shortcode"] for item in selected] == ["REEL001", "POST001", "POST002"]
+    assert composition == {
+        "instagram_reel": 1,
+        "instagram_post": 1,
+        "instagram_carousel": 1,
+    }
+
+
+def test_gallery_catalog_payload_preserves_assets_for_instagram_posts():
+    import creator_bulk
+
+    payload = [
+        [
+            2,
+            "https://www.instagram.com/p/ABC123xyz9/",
+            {
+                "post_shortcode": "ABC123xyz9",
+                "username": "creator.name",
+                "description": "caption",
+                "post_date": "2026-06-30T00:00:00+00:00",
+                "count": 2,
+            },
+        ],
+        [
+            3,
+            "https://cdn.example.com/1.jpg",
+            {
+                "post_shortcode": "ABC123xyz9",
+                "username": "creator.name",
+                "num": 1,
+                "display_url": "https://cdn.example.com/1.jpg",
+                "extension": "jpg",
+                "width": 1000,
+                "height": 1200,
+            },
+        ],
+        [
+            3,
+            "https://cdn.example.com/2.jpg",
+            {
+                "post_shortcode": "ABC123xyz9",
+                "username": "creator.name",
+                "num": 2,
+                "display_url": "https://cdn.example.com/2.jpg",
+                "extension": "jpg",
+                "width": 1000,
+                "height": 1200,
+            },
+        ],
+    ]
+
+    items = creator_bulk.parse_gallery_payload(payload, "creator.name")
+
+    assert len(items) == 1
+    item = items[0]
+    assert item["shortcode"] == "ABC123xyz9"
+    assert item["surface"] == "post"
+    assert item["media_type"] == "instagram_carousel"
+    assert item["processing_class"] == "instagram_carousel"
+    assert len(item["assets"]) == 2
+    assert item["assets"][0]["kind"] == "image"
+    assert item["assets"][1]["source_url"] == "https://cdn.example.com/2.jpg"
+
+
 def test_tiktok_direct_strategy_forces_empty_proxy(monkeypatch):
     import media2md_registry as registry
 

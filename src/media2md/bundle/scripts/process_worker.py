@@ -67,7 +67,9 @@ def markdown_locale() -> str:
 
 
 def render_markdown(video, transcripts, model, temp_dir, final_path):
-    final_path = ROOT / "markdown" / "instagram" / video["username"] / f"{video['shortcode']}.md"
+    media_type = str(video["media_type"] if "media_type" in video.keys() and video["media_type"] else "instagram_reel")
+    bucket = "posts" if media_type in {"instagram_post", "instagram_carousel"} else "reels"
+    final_path = ROOT / "markdown" / "instagram" / video["username"] / bucket / f"{video['shortcode']}.md"
     locale = markdown_locale()
     pack = PACKS[locale]
     temp_dir.mkdir(parents=True, exist_ok=True)

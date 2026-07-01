@@ -260,7 +260,7 @@ Media2MD does not:
 
 ## Project Status
 
-Current published version: `0.9.4`
+Current published version: `0.9.5`
 
 Recent release themes in `0.9.x` include:
 

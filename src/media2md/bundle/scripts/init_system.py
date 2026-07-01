@@ -247,6 +247,8 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             markdown_path TEXT,
             markdown_sha256 TEXT,
             completed_at TEXT,
+            media_type TEXT,
+            processing_class TEXT,
 
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
@@ -301,6 +303,11 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
         DO UPDATE SET value = excluded.value
         """
     )
+    columns = {str(row["name"]) for row in connection.execute("PRAGMA table_info(videos)").fetchall()}
+    if "media_type" not in columns:
+        connection.execute("ALTER TABLE videos ADD COLUMN media_type TEXT")
+    if "processing_class" not in columns:
+        connection.execute("ALTER TABLE videos ADD COLUMN processing_class TEXT")
 
 
 def sync_creators(

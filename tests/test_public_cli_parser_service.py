@@ -50,6 +50,27 @@ def test_add_common_top_level_commands_registers_expected_commands():
     assert "processing commands" in root_help
 
 
+def test_settings_set_registers_instagram_catalog_surface():
+    parser, sub = _parser()
+    add_common_top_level_commands(
+        sub,
+        version="0.9.4",
+        system_status=lambda args: 0,
+        settings_show=lambda args: 0,
+        settings_set=lambda args: 0,
+        agent_status=lambda args: 0,
+        init_command=lambda args: 0,
+        locales=("en", "ja"),
+        core=lambda args: 0,
+        auth=lambda args: 0,
+        generic=lambda args: 0,
+    )
+    args = parser.parse_args(["settings", "set", "--instagram-catalog-surface", "mixed"])
+    assert args.command == "settings"
+    assert args.settings_command == "set"
+    assert args.instagram_catalog_surface == "mixed"
+
+
 def test_add_common_update_commands_registers_check_repository():
     parser, sub = _parser()
     recorded = []
@@ -134,6 +155,7 @@ def test_add_common_creator_commands_media2md_shape():
     assert "instagram," in refresh_help
     assert "tiktok, youtube" in refresh_help
     assert "every configured surface" in refresh_help
+    assert "catalog-surface" in refresh_help
 
 
 def test_add_common_creator_commands_social2md_shape():
@@ -189,3 +211,29 @@ def test_creator_run_help_mentions_cached_catalog_wording():
     assert "supported for `creator run`" in run_help
     for provider in ("instagram", "tiktok", "youtube"):
         assert provider in run_help
+
+
+def test_creator_run_help_mentions_instagram_catalog_surface():
+    parser, sub = _parser()
+    creator = sub.add_parser("creator")
+    add_common_creator_commands(
+        creator,
+        providers=("instagram", "youtube", "tiktok"),
+        parse_duration=lambda text: 1,
+        creator_status=lambda args: 0,
+        creator_sync=lambda args: 0,
+        creator_run=lambda args: 0,
+        policy_show=lambda args: 0,
+        set_policy=lambda args, enabled=None: 0,
+        add_creator=lambda args: 0,
+        registry=lambda args: 0,
+        resolve_creator_provider=lambda creator, provider, command_name: provider or "instagram",
+        strict_provider_resolution=True,
+        include_refresh_catalog=True,
+        include_typed_batch_sizes=True,
+        include_retry_failed=True,
+        default_provider_for_bare_handles=None,
+    )
+    run_help = _find_subparser(creator, "run").format_help().lower()
+    assert "catalog-surface" in run_help
+    assert "reels, posts, or mixed" in run_help

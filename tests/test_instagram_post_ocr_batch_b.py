@@ -287,6 +287,160 @@ def test_process_row_commits_completed_state_for_instagram_post(monkeypatch, tmp
     final.unlink(missing_ok=True)
 
 
+def test_legacy_process_worker_post_route_uses_post_ocr_path(monkeypatch, tmp_path: Path):
+    worker = _load_module(
+        ROOT / "src" / "media2md" / "bundle" / "scripts" / "process_worker_impl.py",
+        "test_batch_b_process_worker_post_route",
+    )
+
+    monkeypatch.setattr(worker, "ROOT", tmp_path)
+    monkeypatch.setattr(worker, "DB_PATH", tmp_path / "state.db")
+    monkeypatch.setattr(worker, "DOWNLOAD_ROOT", tmp_path / "downloads")
+    monkeypatch.setattr(worker, "TRANSCRIPT_ROOT", tmp_path / "transcripts")
+    monkeypatch.setattr(worker, "TEMP_ROOT", tmp_path / "temp")
+    monkeypatch.setattr(worker, "MARKDOWN_ROOT", tmp_path / "markdown")
+
+    conn = worker.connect()
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS creators (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            language TEXT NOT NULL DEFAULT 'auto'
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS videos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            creator_id INTEGER NOT NULL,
+            shortcode TEXT NOT NULL,
+            source_url TEXT NOT NULL,
+            published_at TEXT,
+            caption TEXT,
+            discovered_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            attempt_count INTEGER NOT NULL DEFAULT 0,
+            next_retry_at TEXT,
+            last_error TEXT,
+            markdown_path TEXT,
+            markdown_sha256 TEXT,
+            completed_at TEXT,
+            media_type TEXT,
+            processing_class TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("INSERT INTO creators (id, username, enabled, language) VALUES (1, 'creator.name', 1, 'auto')")
+    now = worker.iso_now()
+    conn.execute(
+        """
+        INSERT INTO videos (
+            creator_id, shortcode, source_url, published_at, caption, discovered_at, status,
+            attempt_count, media_type, processing_class, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?)
+        """,
+        (
+            1,
+            "ABC123xyz9",
+            "https://www.instagram.com/p/ABC123xyz9/",
+            "2026-06-30T00:00:00+00:00",
+            "caption",
+            now,
+            "instagram_post",
+            "instagram_post",
+            now,
+            now,
+        ),
+    )
+    row = conn.execute(
+        """
+        SELECT v.*, c.username, c.language
+        FROM videos v JOIN creators c ON c.id = v.creator_id
+        WHERE v.shortcode='ABC123xyz9'
+        """
+    ).fetchone()
+
+    class _GenericMedia:
+        DOWNLOADS = tmp_path / "generic_downloads"
+        TRANSCRIPTS = tmp_path / "generic_transcripts"
+
+        @staticmethod
+        def safe(value):
+            return value
+
+        @staticmethod
+        def output_bucket(media_type):
+            return "posts"
+
+        @staticmethod
+        def _hydrate_instagram_post_metadata(source_url, creator=None):
+            return {
+                "provider": "instagram",
+                "description": "caption",
+                "assets": [{"index": 1, "kind": "image", "source_url": "https://cdn.example.com/1.jpg", "ocr_candidate": True}],
+                "source_url": source_url,
+            }
+
+        @staticmethod
+        def render_instagram_post_markdown(**kwargs):
+            return (
+                "---\n"
+                "platform: instagram\n"
+                "media_type: \"instagram_post\"\n"
+                "---\n\n"
+                "# Instagram Post: ABC123xyz9\n\n"
+                "## Description\n\n"
+                "caption\n\n"
+                "## Image OCR\n\n"
+                "hello world from image\n\n"
+                "## Combined OCR Notes\n\n"
+                "hello world from image\n"
+            )
+
+        @staticmethod
+        def sha256(path):
+            import hashlib
+            return hashlib.sha256(path.read_bytes()).hexdigest()
+
+        @staticmethod
+        def iso_now():
+            return "2026-06-30T00:00:00+00:00"
+
+        @staticmethod
+        def cleanup_workspace_paths(*paths):
+            return None
+
+        @staticmethod
+        def _cleanup_partial_downloads(work):
+            return None
+
+    monkeypatch.setattr(worker, "_generic_media_module", lambda: _GenericMedia)
+
+    result = worker.process_one(
+        conn,
+        row,
+        "run-1",
+        "chrome/instagram.com",
+        None,
+        False,
+        "model",
+    )
+    saved = conn.execute("SELECT status, markdown_path, media_type, processing_class FROM videos WHERE shortcode='ABC123xyz9'").fetchone()
+    conn.close()
+
+    assert result["status"] == "completed"
+    assert str(result["markdown_path"]).endswith("markdown/instagram/creator.name/posts/ABC123xyz9.md")
+    assert saved["status"] == "completed"
+    assert saved["markdown_path"].endswith("markdown/instagram/creator.name/posts/ABC123xyz9.md")
+    assert saved["media_type"] == "instagram_post"
+    assert saved["processing_class"] == "instagram_post"
+
+
 def test_easyocr_language_candidates_respect_locale_hints():
     ocr = _load_module(
         ROOT / "src" / "media2md" / "bundle" / "scripts" / "media2md_ocr.py",

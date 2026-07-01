@@ -373,5 +373,9 @@ def doctor_payload() -> dict[str, Any]:
         "ejs_version": ejs, "runtime_inventory": inventory, "selected_runtime": selected,
         "runtime_args": youtube_runtime_args(config), "pot_providers": po_token_providers(), "browser_safety": browser_safety_payload(config), "remediation": remediation,
     }
-from media2md.required_actions import validate_required_action
-from media2md.results import RequiredActionResult
+try:
+    from media2md.required_actions import validate_required_action
+    from media2md.results import RequiredActionResult
+except ModuleNotFoundError:
+    from media2md_contract_compat import validate_required_action
+    from media2md_results_compat import RequiredActionResult

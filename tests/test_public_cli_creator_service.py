@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from pathlib import Path
 
 from media2md.bundle.scripts.public_cli_creator_service import (
@@ -214,3 +216,66 @@ def test_emit_creator_run_catalog_context_includes_youtube_surfaces(capsys):
     assert "catalog_surface=shorts" in out
     assert "catalog_surfaces=videos,shorts,streams" in out
     assert "catalog_source_url=https://www.youtube.com/@creator-name/shorts" in out
+
+
+def test_emit_creator_run_catalog_context_includes_instagram_surfaces(capsys):
+    class _Args:
+        output = "human"
+
+    emit_creator_run_catalog_context(
+        args=_Args(),
+        provider="instagram",
+        creator="creator.name",
+        existing_row={
+            "source_url": "https://www.instagram.com/creator.name/",
+            "tracked": 12,
+            "last_sync_at": "2026-06-30T00:00:00+00:00",
+            "current_total_exact": 1,
+        },
+        emit=lambda payload, output: None,
+        youtube_catalog_surfaces=None,
+    )
+    out = capsys.readouterr().out
+    assert "CREATOR_RUN_CATALOG" in out
+    assert "catalog_surface=posts" in out
+    assert "catalog_surfaces=reels,posts" in out
+    assert "catalog_source_url=https://www.instagram.com/creator.name/" in out
+
+
+def test_creator_run_instagram_forwards_batch_sizes_and_catalog_surface():
+    recorded: list[list[str]] = []
+
+    class _Args:
+        creator = "@creator.name"
+        output = "human"
+        since = None
+        until = None
+        rank_from = None
+        rank_to = None
+        order = None
+        max_batches = None
+        max_runtime_minutes = None
+        max_failures = None
+        sleep_between_batches = None
+        stop_on_failure = False
+        retry_failed = False
+        catalog_surface = "mixed"
+
+    from media2md.bundle.scripts.public_cli_creator_service import creator_run_instagram
+
+    result = creator_run_instagram(
+        _Args(),
+        batch_size=10,
+        batch_sizes={"instagram_reel": 2, "instagram_post": 3, "instagram_carousel": 1},
+        mode="batch",
+        core=lambda cmd: recorded.append(list(cmd)) or 0,
+        retry_failed_supported=True,
+        refresh_registry=lambda: None,
+    )
+    assert result == 0
+    assert recorded[0][0:3] == ["creator", "run", "@creator.name"]
+    assert "--batch-sizes-json" in recorded[0]
+    payload = json.loads(recorded[0][recorded[0].index("--batch-sizes-json") + 1])
+    assert payload["instagram_post"] == 3
+    assert payload["instagram_carousel"] == 1
+    assert recorded[0][-2:] == ["--catalog-surface", "mixed"]

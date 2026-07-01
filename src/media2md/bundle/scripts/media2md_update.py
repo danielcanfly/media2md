@@ -31,7 +31,7 @@ CONFIG = ROOT / "config" / "social2md.json"
 CACHE = Path.home() / ".cache" / "media2md" / "updates"
 STATE = CACHE / "state.json"
 REPOSITORY = "danielcanfly/media2md"
-CURRENT_VERSION = "0.9.4"
+CURRENT_VERSION = "0.9.5"
 
 
 def now() -> datetime:

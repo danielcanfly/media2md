@@ -3372,15 +3372,16 @@ def refresh_legacy() -> dict[str, int]:
         try:
             for c in old.execute("SELECT * FROM creators").fetchall():
                 handle = c["username"]
+                catalog_path = LEGACY_INSTAGRAM_CATALOG_DIR / f"{handle}.json"
+                catalog = load_json(catalog_path, {}) if catalog_path.is_file() else {}
+                source_url = str(catalog.get("profile_url") or f"https://www.instagram.com/{handle}/reels/")
                 conn.execute(
                     """INSERT INTO creators(provider,external_id,handle,display_name,source_url,enabled,created_at,updated_at)
                        VALUES('instagram',?,?,?,?,?,?,?)
-                       ON CONFLICT(provider,handle) DO UPDATE SET enabled=excluded.enabled,updated_at=excluded.updated_at""",
-                    (handle, handle, handle, f"https://www.instagram.com/{handle}/reels/", int(c["enabled"]), now, now),
+                       ON CONFLICT(provider,handle) DO UPDATE SET source_url=excluded.source_url,enabled=excluded.enabled,updated_at=excluded.updated_at""",
+                    (handle, handle, handle, source_url, int(c["enabled"]), now, now),
                 )
                 counts["instagram_creators"] += 1
-                catalog_path = LEGACY_INSTAGRAM_CATALOG_DIR / f"{handle}.json"
-                catalog = load_json(catalog_path, {}) if catalog_path.is_file() else {}
                 total = catalog.get("current_total")
                 exact = bool(catalog.get("current_total_exact", False))
                 last_full = catalog.get("last_full_sync_at")

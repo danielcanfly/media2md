@@ -51,12 +51,24 @@ def _youtube_surface_from_source_url(source_url: str | None) -> str:
     return "videos"
 
 
+def _instagram_surface_from_source_url(source_url: str | None) -> str:
+    path = urlsplit(str(source_url or "")).path.rstrip("/").lower()
+    if path.endswith("/reels"):
+        return "reels"
+    return "posts"
+
+
 def creator_catalog_metadata(
     row: dict[str, Any],
     *,
     youtube_catalog_surfaces: Callable[[], tuple[str, ...]] | None = None,
 ) -> dict[str, Any]:
     metadata: dict[str, Any] = {"source_url": row.get("source_url")}
+    if row.get("provider") == "instagram":
+        surface = _instagram_surface_from_source_url(str(row.get("source_url") or ""))
+        metadata["catalog_surface"] = surface
+        metadata["catalog_surfaces"] = ["reels", "posts"] if surface == "posts" else ["reels"]
+        return metadata
     if row.get("provider") != "youtube":
         return metadata
     surfaces = tuple(youtube_catalog_surfaces() if youtube_catalog_surfaces is not None else ("videos", "shorts"))
@@ -121,6 +133,12 @@ def render_creator_status(
                 f"{row['remaining'] or 0:<5} {totals}"
             )
             if row["provider"] == "youtube":
+                print(
+                    f"  SOURCE surface={metadata['catalog_surface']} "
+                    f"catalog_surfaces={','.join(metadata['catalog_surfaces'])} "
+                    f"url={metadata.get('source_url') or '-'}"
+                )
+            elif row["provider"] == "instagram":
                 print(
                     f"  SOURCE surface={metadata['catalog_surface']} "
                     f"catalog_surfaces={','.join(metadata['catalog_surfaces'])} "
@@ -317,6 +335,8 @@ def print_json_block(title: str, payload: dict[str, Any]) -> None:
 def apply_settings_updates(config: dict[str, Any], args) -> dict[str, Any]:
     if args.instagram_backend:
         config.setdefault("providers", {}).setdefault("instagram", {})["backend"] = args.instagram_backend
+    if getattr(args, "instagram_catalog_surface", None):
+        config.setdefault("providers", {}).setdefault("instagram", {})["catalog_surface"] = args.instagram_catalog_surface
     if getattr(args, "youtube_js_runtime", None):
         config.setdefault("providers", {}).setdefault("youtube", {})["js_runtime"] = args.youtube_js_runtime
     if getattr(args, "youtube_allow_remote_ejs", None) is not None:

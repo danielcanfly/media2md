@@ -213,3 +213,82 @@ def test_generic_media_inspect_preserves_post_surface_with_query(monkeypatch):
     assert result["source_url"] == "https://www.instagram.com/p/DZ-Inv7mJE2/"
     assert result["media_type"] == "instagram_carousel"
     assert result["processing_class"] == "instagram_carousel"
+
+
+def test_instagram_instaloader_catalog_can_emit_posts_surface(monkeypatch):
+    module = _load_module(
+        ROOT / "src" / "media2md" / "bundle" / "scripts" / "instagram_instaloader.py",
+        "test_batch_a_instagram_instaloader_catalog_posts",
+    )
+
+    class _Post:
+        def __init__(self, shortcode: str, typename: str, is_video: bool = False):
+            self.shortcode = shortcode
+            self.typename = typename
+            self.is_video = is_video
+            self.caption = "caption"
+            self.mediaid = 123
+            self.date_utc = None
+
+        def get_sidecar_nodes(self):
+            return []
+
+    class _Profile:
+        def get_posts(self):
+            return [
+                _Post("REEL001", "GraphVideo", True),
+                _Post("POST001", "GraphImage", False),
+                _Post("POST002", "GraphSidecar", False),
+            ]
+
+    class _ProfileLoader:
+        @staticmethod
+        def from_username(context, username):
+            return _Profile()
+
+    monkeypatch.setattr(module, "loader_context", lambda: type("Loader", (), {"context": object()})())
+    monkeypatch.setitem(sys.modules, "instaloader", type("InstaloaderModule", (), {"Profile": _ProfileLoader})())
+
+    items = module.catalog("creator.name", 1, 5, "posts")
+    assert [item["shortcode"] for item in items] == ["POST001", "POST002"]
+    assert all(item["surface"] == "post" for item in items)
+    assert all(item["source_url"].startswith("https://www.instagram.com/p/") for item in items)
+
+
+def test_instagram_instaloader_catalog_can_emit_mixed_surface(monkeypatch):
+    module = _load_module(
+        ROOT / "src" / "media2md" / "bundle" / "scripts" / "instagram_instaloader.py",
+        "test_batch_a_instagram_instaloader_catalog_mixed",
+    )
+
+    class _Post:
+        def __init__(self, shortcode: str, typename: str, is_video: bool = False):
+            self.shortcode = shortcode
+            self.typename = typename
+            self.is_video = is_video
+            self.caption = "caption"
+            self.mediaid = 123
+            self.date_utc = None
+
+        def get_sidecar_nodes(self):
+            return []
+
+    class _Profile:
+        def get_posts(self):
+            return [
+                _Post("REEL001", "GraphVideo", True),
+                _Post("POST001", "GraphImage", False),
+            ]
+
+    class _ProfileLoader:
+        @staticmethod
+        def from_username(context, username):
+            return _Profile()
+
+    monkeypatch.setattr(module, "loader_context", lambda: type("Loader", (), {"context": object()})())
+    monkeypatch.setitem(sys.modules, "instaloader", type("InstaloaderModule", (), {"Profile": _ProfileLoader})())
+
+    items = module.catalog("creator.name", 1, 5, "mixed")
+    assert [item["shortcode"] for item in items] == ["REEL001", "POST001"]
+    assert items[0]["surface"] == "reel"
+    assert items[1]["surface"] == "post"

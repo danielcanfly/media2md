@@ -20,6 +20,7 @@ def _project_root() -> Path:
 
 ROOT = _project_root()
 COOKIE_FILE = ROOT / "data" / "secrets" / "instagram-cookies.txt"
+CATALOG_SURFACES = ("reels", "posts", "mixed")
 
 
 def iso(value: Any) -> str | None:
@@ -73,23 +74,52 @@ def reels_iterator(profile: Any) -> Iterable[Any]:
     return (post for post in profile.get_posts() if getattr(post, "is_video", False))
 
 
-def catalog(username: str, start: int, end: int) -> list[dict[str, Any]]:
+def posts_iterator(profile: Any) -> Iterable[Any]:
+    return (post for post in profile.get_posts() if _surface_for_post(post) != "reel")
+
+
+def mixed_iterator(profile: Any) -> Iterable[Any]:
+    return profile.get_posts()
+
+
+def _catalog_iterator(profile: Any, surface: str) -> Iterable[Any]:
+    if surface == "reels":
+        return reels_iterator(profile)
+    if surface == "posts":
+        return posts_iterator(profile)
+    return mixed_iterator(profile)
+
+
+def catalog(username: str, start: int, end: int, surface: str = "reels") -> list[dict[str, Any]]:
     import instaloader
+    if surface not in CATALOG_SURFACES:
+        raise RuntimeError(f"Unsupported Instagram catalog surface: {surface}")
     loader = loader_context()
     profile = instaloader.Profile.from_username(loader.context, username)
     items: list[dict[str, Any]] = []
-    for index, post in enumerate(reels_iterator(profile), start=1):
+    for index, post in enumerate(_catalog_iterator(profile, surface), start=1):
         if index < start:
             continue
         if index > end:
             break
         shortcode = str(post.shortcode)
+        item_surface = _surface_for_post(post)
+        has_multiple_assets = len(_assets_for_post(post)) > 1
+        if item_surface == "reel":
+            media_type = "instagram_reel"
+        elif has_multiple_assets:
+            media_type = "instagram_carousel"
+        else:
+            media_type = "instagram_post"
         items.append({
             "shortcode": shortcode,
             "published_at": iso(getattr(post, "date_utc", None)),
-            "source_url": f"https://www.instagram.com/reel/{shortcode}/",
+            "source_url": f"https://www.instagram.com/{'reel' if item_surface == 'reel' else 'p'}/{shortcode}/",
             "caption": str(getattr(post, "caption", None) or ""),
             "media_id": str(getattr(post, "mediaid", None) or ""),
+            "surface": item_surface,
+            "media_type": media_type,
+            "processing_class": media_type,
         })
     return items
 
@@ -246,6 +276,7 @@ def main() -> int:
     cat.add_argument("username")
     cat.add_argument("--start", type=int, required=True)
     cat.add_argument("--end", type=int, required=True)
+    cat.add_argument("--surface", choices=CATALOG_SURFACES, default="reels")
     inspect = sub.add_parser("inspect")
     inspect.add_argument("shortcode")
     dl = sub.add_parser("download")
@@ -253,7 +284,7 @@ def main() -> int:
     dl.add_argument("--output-dir", required=True)
     args = parser.parse_args()
     if args.command == "catalog":
-        print(json.dumps(catalog(args.username, args.start, args.end), ensure_ascii=False))
+        print(json.dumps(catalog(args.username, args.start, args.end, args.surface), ensure_ascii=False))
         return 0
     if args.command == "inspect":
         print(json.dumps(inspect_post(args.shortcode), ensure_ascii=False))
