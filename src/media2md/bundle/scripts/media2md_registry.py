@@ -68,6 +68,7 @@ QUARANTINE = ROOT / "data" / "quarantine"
 CHECKPOINT_DIR = ROOT / "data" / "provider_catalog_checkpoints"
 TIKTOK_CURSOR_STATE = CHECKPOINT_DIR / "tiktok-cursor-state.json"
 SUPPORTED = ("instagram", "youtube", "tiktok", "bilibili")
+GENERIC_TRANSCRIPTS = ROOT / "workspace" / "generic_transcripts"
 
 
 def iso_now() -> str:
@@ -77,6 +78,27 @@ def iso_now() -> str:
 def safe_name(value: str) -> str:
     clean = re.sub(r"[^\w.-]+", "_", value.strip().lstrip("@"), flags=re.UNICODE)
     return clean[:150] or "unknown"
+
+
+def _generic_media_creator_dir(provider: str, raw_creator: str) -> str:
+    if provider == "tiktok":
+        handle = str(raw_creator or "").strip().lstrip("@")
+        return handle if handle and _is_human_tiktok_handle(handle) else safe_name(handle)
+    return safe_name(str(raw_creator or ""))
+
+
+def _transcription_progress_payload(provider: str, creator: str, media_id: str) -> dict[str, Any] | None:
+    path = (
+        GENERIC_TRANSCRIPTS
+        / provider
+        / _generic_media_creator_dir(provider, creator)
+        / safe_artifact_stem(provider, media_id)
+        / "transcription_progress.json"
+    )
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
 
 
 def atomic_json(path: Path, payload: Any) -> None:
@@ -3036,7 +3058,8 @@ def _latest_markdown_path(provider: str, external_id: str) -> str | None:
 
 
 def _render_stage_progress(*, provider: str, creator: str, media_id: str, batch_number: int,
-                           batch_count: int, current: int, total: int, stage: str, elapsed: float) -> None:
+                           batch_count: int, current: int, total: int, stage: str, elapsed: float,
+                           transcription_progress: dict[str, Any] | None = None) -> None:
     stage_map = {
         "pending": ("queued", 0.05),
         "downloading": ("download", 0.28),
@@ -3058,10 +3081,19 @@ def _render_stage_progress(*, provider: str, creator: str, media_id: str, batch_
     percent_text = f"{int(round(percent * 100)):>3}%"
     elapsed_text = _format_eta(elapsed)
     short_id = media_id[:14]
+    chunk_hint = ""
+    if stage in {"transcribing", "transcribed"} and transcription_progress:
+        chunk_count = int(transcription_progress.get("chunk_count") or 0)
+        chunk_index = transcription_progress.get("current_chunk_index")
+        chunk_seconds = transcription_progress.get("chunk_seconds")
+        if chunk_count > 1 and chunk_index is not None:
+            chunk_hint = f" chunk {int(chunk_index)}/{chunk_count}"
+            if chunk_seconds:
+                chunk_hint += f" @{int(chunk_seconds)}s"
     line = (
         f"\r{stage_label:<10} [{bar}] {percent_text} "
         f"item {current}/{total} batch {batch_number}/{batch_count} "
-        f"elapsed {elapsed_text} id {short_id}"
+        f"elapsed {elapsed_text}{chunk_hint} id {short_id}"
     )
     print(line[:160], end="", flush=True)
 
@@ -3239,6 +3271,11 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
                                     stage = str(status_row["status"])
                             except Exception:
                                 pass
+                        transcription_progress = _transcription_progress_payload(
+                            provider,
+                            str(row["creator"] if "creator" in row.keys() else row["handle"]),
+                            str(row["external_id"]),
+                        )
                         if output == "human":
                             _render_stage_progress(
                                 provider=provider,
@@ -3250,6 +3287,7 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
                                 total=len(rows),
                                 stage=stage,
                                 elapsed=time.monotonic() - item_started,
+                                transcription_progress=transcription_progress,
                             )
                         time.sleep(0.25)
                     stdout, stderr = process.communicate(timeout=5)

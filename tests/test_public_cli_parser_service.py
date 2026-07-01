@@ -208,6 +208,7 @@ def test_creator_run_help_mentions_cached_catalog_wording():
     run_help = _find_subparser(creator, "run").format_help().lower()
     assert "current policy" in creator_help
     assert "cached results" in run_help
+    assert "recommended for longer bilibili drains" in run_help
     assert "supported for `creator run`" in run_help
     for provider in ("instagram", "tiktok", "youtube"):
         assert provider in run_help

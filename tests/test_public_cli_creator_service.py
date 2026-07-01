@@ -10,6 +10,7 @@ from media2md.bundle.scripts.public_cli_creator_service import (
     creator_run_context,
     creator_policy_payload,
     creator_run_registry_command,
+    emit_sync_warning_or_fail,
     merge_batch_sizes,
     resolve_existing_row,
 )
@@ -263,6 +264,23 @@ def test_emit_creator_run_catalog_context_includes_bilibili_video_surface(capsys
     assert "catalog_surface=videos" in out
     assert "catalog_surfaces=videos" in out
     assert "catalog_source_url=https://space.bilibili.com/1510588366" in out
+
+
+def test_emit_sync_warning_or_fail_mentions_bilibili_stale_catalog_recommendation(capsys):
+    args = _Args(output="human", allow_stale_catalog=True)
+    result = emit_sync_warning_or_fail(
+        args=args,
+        provider="bilibili",
+        creator="1510588366",
+        sync_code=2,
+        existing_row={"tracked": 50, "last_sync_at": "2026-07-01T14:34:08+00:00"},
+        emit=lambda payload, output: None,
+    )
+    assert result is None
+    out = capsys.readouterr().out
+    assert "SYNC_WARNING" in out
+    assert "recommended_for_bilibili_long_runs=true" in out
+    assert "--allow-stale-catalog" in out
 
 
 def test_creator_run_instagram_forwards_batch_sizes_and_catalog_surface():

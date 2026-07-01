@@ -228,7 +228,7 @@ def _add_creator_run_arguments(parser, *, include_typed_batch_sizes: bool, inclu
     parser.add_argument("--rank-to", type=int)
     parser.add_argument("--order", choices=("newest_first", "oldest_first"))
     parser.add_argument("--catalog-surface", choices=("reels", "posts", "mixed"), help="Instagram only. Use the saved reels, posts, or mixed catalog surface for this run.")
-    parser.add_argument("--allow-stale-catalog", action="store_true", help="Continue with the last saved catalog when refresh-catalog fails. Use this only when you explicitly want cached results.")
+    parser.add_argument("--allow-stale-catalog", action="store_true", help="Continue with the last saved catalog when refresh-catalog fails. Use this only when you explicitly want cached results. Recommended for longer Bilibili drains when live refresh is rate-limited.")
     parser.add_argument("--output", choices=("human", "ndjson"), default="human")
 
 

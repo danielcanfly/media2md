@@ -262,6 +262,42 @@ def _atomic_json(path: Path, payload: dict[str, Any]) -> None:
     os.replace(temp, path)
 
 
+def _transcription_progress_path(transcript_dir: Path) -> Path:
+    return transcript_dir / "transcription_progress.json"
+
+
+def _write_transcription_progress(
+    transcript_dir: Path,
+    *,
+    stage: str,
+    external_id: str,
+    model: str,
+    chunk_count: int,
+    chunk_seconds: int | None,
+    current_chunk_index: int | None,
+    current_chunk_name: str | None,
+    duration_seconds: float | None,
+    reused_chunk_transcripts: int = 0,
+) -> None:
+    payload = {
+        "stage": stage,
+        "external_id": external_id,
+        "model": model,
+        "chunk_count": chunk_count,
+        "chunk_seconds": chunk_seconds,
+        "current_chunk_index": current_chunk_index,
+        "current_chunk_name": current_chunk_name,
+        "duration_seconds": duration_seconds,
+        "reused_chunk_transcripts": reused_chunk_transcripts,
+        "updated_at": iso_now(),
+    }
+    _atomic_json(_transcription_progress_path(transcript_dir), payload)
+
+
+def _clear_transcription_progress(transcript_dir: Path) -> None:
+    _transcription_progress_path(transcript_dir).unlink(missing_ok=True)
+
+
 def _macos_proxy_types() -> list[str]:
     if sys.platform != "darwin" or not shutil.which("scutil"):
         return []
@@ -1969,10 +2005,23 @@ def transcribe_audio(media: Path, transcript_dir: Path, external_id: str, hinted
     if duration < threshold:
         transcript_path = transcript_dir / f"{artifact_stem}.txt"
         resumed = transcript_path.is_file() and transcript_path.stat().st_size > 0
+        _write_transcription_progress(
+            transcript_dir,
+            stage="single",
+            external_id=external_id,
+            model=MODEL,
+            chunk_count=1,
+            chunk_seconds=None,
+            current_chunk_index=1,
+            current_chunk_name=media.name,
+            duration_seconds=duration,
+            reused_chunk_transcripts=1 if resumed else 0,
+        )
         if not resumed:
             run(_whisper_command(media, transcript_dir, artifact_stem, MODEL), timeout=7200)
         if not transcript_path.is_file():
             raise RuntimeError("Whisper did not create the expected transcript.")
+        _clear_transcription_progress(transcript_dir)
         return {
             "text": transcript_path.read_text(encoding="utf-8").strip(),
             "source": "local_whisper", "model": MODEL, "duration_seconds": duration,
@@ -1991,9 +2040,33 @@ def transcribe_audio(media: Path, transcript_dir: Path, external_id: str, hinted
     model = str(settings["chunk_model"])
     merged: list[str] = []
     reused_count = 0
+    _write_transcription_progress(
+        transcript_dir,
+        stage="chunked",
+        external_id=external_id,
+        model=model,
+        chunk_count=len(chunks),
+        chunk_seconds=chunk_seconds,
+        current_chunk_index=None,
+        current_chunk_name=None,
+        duration_seconds=duration,
+        reused_chunk_transcripts=0,
+    )
     for index, chunk in enumerate(chunks):
         name = safe_artifact_stem("chunk", chunk.stem)
         transcript_path = outputs_dir / f"{name}.txt"
+        _write_transcription_progress(
+            transcript_dir,
+            stage="chunked",
+            external_id=external_id,
+            model=model,
+            chunk_count=len(chunks),
+            chunk_seconds=chunk_seconds,
+            current_chunk_index=index + 1,
+            current_chunk_name=chunk.name,
+            duration_seconds=duration,
+            reused_chunk_transcripts=reused_count,
+        )
         if transcript_path.is_file() and transcript_path.stat().st_size > 0:
             reused_count += 1
         else:
@@ -2004,6 +2077,7 @@ def transcribe_audio(media: Path, transcript_dir: Path, external_id: str, hinted
         start = index * chunk_seconds
         end = min(int(duration), start + chunk_seconds)
         merged.append(f"### {_format_clock(start)}–{_format_clock(end)}\n\n{text or '_No speech detected._'}")
+    _clear_transcription_progress(transcript_dir)
     return {
         "text": "\n\n".join(merged).strip(),
         "source": "local_whisper_chunked", "model": model,
@@ -2207,8 +2281,10 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
                     chunk_seconds_used = result["chunk_seconds"]
                     resumed_from_checkpoint = bool(resumed_from_checkpoint or result.get("resumed_from_checkpoint"))
                 except KeyboardInterrupt:
+                    _clear_transcription_progress(transcript_dir)
                     raise
                 except Exception as exc:
+                    _clear_transcription_progress(transcript_dir)
                     classification = classify_transcription_exception(exc)
                     raise StageError(
                         "transcribe", str(exc),

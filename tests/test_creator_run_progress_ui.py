@@ -44,6 +44,29 @@ def test_render_stage_progress_looks_like_single_line_progress(capsys):
     assert "elapsed 00:01:33" in output
 
 
+def test_render_stage_progress_includes_chunk_hint_for_long_transcription(capsys):
+    module = _load_registry()
+    module._render_stage_progress(
+        provider="bilibili",
+        creator="1510588366",
+        media_id="BV1xwLJ6qEGw",
+        batch_number=1,
+        batch_count=7,
+        current=3,
+        total=5,
+        stage="transcribing",
+        elapsed=245.0,
+        transcription_progress={
+            "chunk_count": 7,
+            "current_chunk_index": 3,
+            "chunk_seconds": 1800,
+        },
+    )
+    output = capsys.readouterr().out
+    assert "chunk 3/7" in output
+    assert "@1800s" in output
+
+
 def test_creator_run_summary_includes_result_folder_and_finder_hint(capsys):
     module = _load_registry()
     root = Path("/tmp/media2md/markdown/youtube/creator-name/videos")

@@ -205,6 +205,9 @@ def emit_sync_warning_or_fail(
         print("using_cached_catalog=true", flush=True)
         print(f"catalog_last_synced_at={existing_row.get('last_sync_at') or '-'}", flush=True)
         print(f"tracked={int(existing_row.get('tracked') or 0)}", flush=True)
+        if provider == "bilibili":
+            print("recommended_for_bilibili_long_runs=true", flush=True)
+            print("hint=For longer Bilibili drains, rerun with --allow-stale-catalog to keep processing when live refresh is rate-limited.", flush=True)
     else:
         emit(warning, args.output)
     return None
