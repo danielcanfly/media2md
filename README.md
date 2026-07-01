@@ -125,6 +125,14 @@ media2md creator run @creator-name --provider youtube
 media2md status --output ndjson
 ```
 
+Drain a creator backlog across multiple batches:
+
+```bash
+media2md creator run @creator-name --provider youtube --mode drain --batch-size 1 --max-batches 5
+```
+
+Use `--mode batch` when you want one batch only. Use `--mode drain` when you want Media2MD to keep moving through the saved backlog until it hits `remaining=0` or a configured limit such as `--max-batches`, `--max-runtime-minutes`, or `--max-failures`.
+
 Process a single media URL immediately:
 
 ```bash
@@ -168,6 +176,16 @@ markdown/instagram/<creator>/reels/
 markdown/instagram/<creator>/posts/
 markdown/tiktok/<creator>/
 ```
+
+After a successful `creator run` or `media add --process-now`, Media2MD prints:
+
+```text
+latest_markdown_path=...
+result_folder=...
+open_in_finder_hint=open "..."
+```
+
+`latest_markdown_path` points to the newest Markdown file created by that command. `result_folder` is the folder that contains the output so you can open it directly in Finder.
 
 ## Documentation
 

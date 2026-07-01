@@ -968,6 +968,12 @@ def run_creator(args: argparse.Namespace) -> int:
             print(f"report={last_summary['report']}")
         if last_summary.get("log"):
             print(f"engine_log={last_summary['log']}")
+        latest_markdown_path = str(last_summary.get("latest_markdown_path") or "").strip()
+        if latest_markdown_path:
+            print(f"latest_markdown_path={latest_markdown_path}")
+            result_folder = str(Path(latest_markdown_path).expanduser().parent)
+            print(f"result_folder={result_folder}")
+            print(f'open_in_finder_hint=open "{result_folder}"')
         if total_failed:
             examples = list(last_summary.get("errors") or [])[:3]
             for example in examples:

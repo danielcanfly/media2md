@@ -16,6 +16,27 @@ class _FakeArgs:
         self.__dict__.update(kwargs)
 
 
+class _FakeTimeModule:
+    def __init__(self):
+        self.value = 0.0
+
+    def monotonic(self):
+        self.value += 1.0
+        return self.value
+
+    def sleep(self, seconds):
+        self.value += float(seconds)
+
+
+def _load_module(path: Path, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def _load_auth_module():
     root = Path(__file__).resolve().parents[1]
     path = root / "src" / "media2md" / "bundle" / "scripts" / "media2md_auth.py"
@@ -420,6 +441,95 @@ def test_first_user_creator_run_summary_includes_result_folder_and_finder_hint(c
     assert "primary_output_surface=creator-name" not in out
     assert f"result_folder={markdown_root}" in out
     assert f'open_in_finder_hint=open "{markdown_root}"' in out
+
+
+def test_first_user_instagram_drain_runs_multiple_batches(monkeypatch):
+    social2md = _load_module(
+        Path(__file__).resolve().parents[1] / "src" / "media2md" / "bundle" / "scripts" / "social2md_core.py",
+        "first_user_social2md_drain",
+    )
+
+    emitted: list[dict[str, object]] = []
+    commands: list[list[str]] = []
+    remaining = {"value": 3}
+
+    monkeypatch.setattr(social2md, "normalize_creator", lambda value: "career_cleo")
+    monkeypatch.setattr(social2md, "load_config", lambda: {"timezone": "UTC"})
+    monkeypatch.setattr(
+        social2md,
+        "effective_policy",
+        lambda creator: {
+            "processing": {
+                "mode": "drain",
+                "batch_size": 1,
+                "max_batches": 0,
+                "max_runtime_minutes": 360,
+                "max_failures": 10,
+                "stop_on_failure": False,
+                "sleep_between_batches": 0,
+            },
+            "filters": {"since": None, "until": None, "rank_from": None, "rank_to": None, "order": "newest_first"},
+            "sync": {"full_every_minutes": 1440, "quick_window": 100},
+        },
+    )
+    monkeypatch.setattr(social2md, "ui_locale", lambda non_interactive: "en")
+    monkeypatch.setattr(social2md, "resolve_boundary", lambda value, timezone_name, inclusive_end: value)
+    monkeypatch.setattr(social2md, "load_performance_samples", lambda username: [])
+    monkeypatch.setattr(social2md, "save_performance_samples", lambda username, samples: None)
+    monkeypatch.setattr(social2md, "time", _FakeTimeModule())
+    monkeypatch.setattr(social2md, "sync_once", lambda *args, **kwargs: (0, {}))
+
+    def fake_remaining(*args, **kwargs):
+        return remaining["value"]
+
+    def fake_stream(command, **kwargs):
+        commands.append(list(command))
+        remaining["value"] -= 1
+        batch_number = kwargs.get("batch_number", 1)
+        return 0, {
+            "completed": 1,
+            "failed": 0,
+            "report": f"/tmp/report-{batch_number}.json",
+            "log": f"/tmp/log-{batch_number}.txt",
+        }
+
+    monkeypatch.setattr(social2md, "filtered_candidate_count", fake_remaining)
+    monkeypatch.setattr(social2md, "stream_engine", fake_stream)
+    monkeypatch.setattr(social2md, "engine_command", lambda *parts: list(parts))
+    monkeypatch.setattr(social2md, "emit_cli_event", lambda **payload: emitted.append(payload))
+
+    args = argparse.Namespace(
+        creator="career_cleo",
+        mode="drain",
+        batch_size=1,
+        max_batches=None,
+        max_runtime_minutes=None,
+        max_failures=None,
+        stop_on_failure=False,
+        sleep_between_batches=0,
+        retry_failed=False,
+        since=None,
+        until=None,
+        rank_from=None,
+        rank_to=None,
+        order=None,
+        output="ndjson",
+        non_interactive=True,
+        force_full_sync=False,
+        pause_seconds=0,
+        batch_sizes_json=None,
+        catalog_surface="posts",
+        skip_sync=False,
+    )
+
+    result = social2md.run_creator(args)
+
+    assert result == 0
+    assert len(commands) == 3
+    assert all("--catalog-surface" in command for command in commands)
+    completed = [payload for payload in emitted if payload.get("event") == "run_completed"]
+    assert completed
+    assert completed[-1]["data"]["status"] == "completed"
 
 
 def test_first_user_public_cli_refresh_catalog_alias_exists():
