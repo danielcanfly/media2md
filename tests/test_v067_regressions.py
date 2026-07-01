@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import importlib.util
 import json
+import os
 import sqlite3
+import sys
 from pathlib import Path
 
 import pytest
@@ -97,6 +100,59 @@ def test_completed_generic_audio_manifest_is_resumable(tmp_path):
     )
     assert cached is not None
     assert cached[0] == audio
+
+
+def test_filter_youtube_sponsor_segments_removes_high_signal_ad_copy():
+    import generic_media
+
+    payload = generic_media.filter_youtube_sponsor_segments(
+        "\n\n".join([
+            "Today we are breaking down the benchmark results and what changed in the release.",
+            "This video is sponsored by Acme Cloud. Use code ACME10 at the link in the description for a discount code and affiliate link details.",
+            "Now back to the main comparison of latency, throughput, and memory use.",
+        ])
+    )
+
+    assert payload["filtered"] is True
+    assert payload["removed_count"] == 1
+    assert "This video is sponsored by Acme Cloud" not in payload["text"]
+    assert "benchmark results" in payload["text"]
+    assert "Now back to the main comparison" in payload["text"]
+
+
+def test_filter_youtube_sponsor_segments_keeps_normal_content():
+    import generic_media
+
+    text = "\n\n".join([
+        "Today we review the architecture changes in the new release.",
+        "The next section explains how the queue, retries, and storage layout work.",
+    ])
+    payload = generic_media.filter_youtube_sponsor_segments(text)
+
+    assert payload["filtered"] is False
+    assert payload["removed_count"] == 0
+    assert payload["text"] == text
+
+
+def test_filter_youtube_sponsor_segments_supports_off_and_aggressive_modes():
+    import generic_media
+
+    text = "\n\n".join([
+        "Today we review the architecture changes in the new release.",
+        "Check out Acme Cloud at the link in the description and start your free trial today.",
+        "The next section explains how the queue works.",
+    ])
+
+    off_payload = generic_media.filter_youtube_sponsor_segments(text, mode="off")
+    aggressive_payload = generic_media.filter_youtube_sponsor_segments(text, mode="aggressive")
+
+    assert off_payload["filtered"] is False
+    assert off_payload["reason"] == "disabled"
+    assert off_payload["text"] == text
+    assert aggressive_payload["filtered"] is True
+    assert aggressive_payload["removed_count"] == 1
+    assert "free trial" not in aggressive_payload["text"]
+    assert aggressive_payload["reason"] == "youtube_sponsor_filter_aggressive"
 
 
 def test_unmanifested_partial_audio_is_removed(tmp_path):
@@ -319,6 +375,431 @@ def test_failed_transcription_preserves_completed_audio_checkpoint(tmp_path, mon
     assert (work / "audio-manifest.json").is_file()
 
 
+def test_youtube_captions_skip_audio_download_and_transcription(tmp_path, monkeypatch):
+    import generic_media
+
+    downloads = tmp_path / "downloads"
+    transcripts = tmp_path / "transcripts"
+    markdown = tmp_path / "markdown"
+    monkeypatch.setattr(generic_media, "ROOT", tmp_path)
+    monkeypatch.setattr(generic_media, "DOWNLOADS", downloads)
+    monkeypatch.setattr(generic_media, "TRANSCRIPTS", transcripts)
+    monkeypatch.setattr(generic_media, "MARKDOWN", markdown)
+    monkeypatch.setattr(generic_media, "REGISTRY_DB", tmp_path / "missing-registry.db")
+    monkeypatch.setattr(generic_media, "youtube_sponsor_filter_mode", lambda: "conservative")
+    monkeypatch.setattr(
+        generic_media,
+        "try_youtube_captions",
+        lambda *a, **k: ("caption line 1\ncaption line 2", "en"),
+    )
+    monkeypatch.setattr(generic_media, "youtube_access_args", lambda **k: [])
+    monkeypatch.setattr(
+        generic_media,
+        "download_youtube_audio",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("audio download should not run when captions exist")),
+    )
+    monkeypatch.setattr(
+        generic_media,
+        "transcribe_audio",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("transcription should not run when captions exist")),
+    )
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("""
+        CREATE TABLE media (
+            id INTEGER PRIMARY KEY, provider TEXT, external_id TEXT,
+            creator TEXT, title TEXT, description TEXT, source_url TEXT,
+            published_at TEXT, duration_seconds REAL, status TEXT,
+            markdown_path TEXT, markdown_sha256 TEXT, last_error TEXT,
+            completed_at TEXT, updated_at TEXT
+        )
+    """)
+    conn.execute("""
+        INSERT INTO media(
+            id, provider, external_id, creator, title, description,
+            source_url, published_at, duration_seconds, status, updated_at
+        ) VALUES(1, 'youtube', 'dQw4w9WgXcQ', 'creator-name',
+                 'captioned video', 'description',
+                 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+                 '', 213, 'pending', '')
+    """)
+    conn.commit()
+    row = conn.execute("SELECT * FROM media WHERE id=1").fetchone()
+
+    result = generic_media.process_row(conn, row)
+    final = Path(result["final_path"])
+
+    assert final.is_file()
+    content = final.read_text(encoding="utf-8")
+    assert 'transcription_source: "youtube_captions"' in content
+    assert 'caption_language: "en"' in content
+    assert 'caption_probe_result: "hit"' in content
+    assert 'transcript_filter_reason: "no_sponsor_segments_detected"' in content
+    assert 'sponsor_filter_applied: false' in content
+    assert 'sponsor_segments_filtered: 0' in content
+    assert "caption line 1" in content
+    assert "caption line 2" in content
+    assert not (downloads / "youtube" / "creator-name" / "dQw4w9WgXcQ").exists()
+    assert not (transcripts / "youtube" / "creator-name" / "dQw4w9WgXcQ").exists()
+
+
+def test_youtube_captions_render_filtered_sponsor_appendix(tmp_path, monkeypatch):
+    import generic_media
+
+    downloads = tmp_path / "downloads"
+    transcripts = tmp_path / "transcripts"
+    markdown = tmp_path / "markdown"
+    monkeypatch.setattr(generic_media, "ROOT", tmp_path)
+    monkeypatch.setattr(generic_media, "DOWNLOADS", downloads)
+    monkeypatch.setattr(generic_media, "TRANSCRIPTS", transcripts)
+    monkeypatch.setattr(generic_media, "MARKDOWN", markdown)
+    monkeypatch.setattr(generic_media, "REGISTRY_DB", tmp_path / "missing-registry.db")
+    monkeypatch.setattr(generic_media, "youtube_sponsor_filter_mode", lambda: "conservative")
+    monkeypatch.setattr(
+        generic_media,
+        "try_youtube_captions",
+        lambda *a, **k: (
+            "\n\n".join([
+                "Today we are covering the benchmark results.",
+                "This video is sponsored by Acme Cloud. Use code ACME10 at the link in the description for a discount code.",
+                "Now back to the performance analysis.",
+            ]),
+            "en",
+        ),
+    )
+    monkeypatch.setattr(generic_media, "youtube_access_args", lambda **k: [])
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("""
+        CREATE TABLE media (
+            id INTEGER PRIMARY KEY, provider TEXT, external_id TEXT,
+            creator TEXT, title TEXT, description TEXT, source_url TEXT,
+            published_at TEXT, duration_seconds REAL, status TEXT,
+            markdown_path TEXT, markdown_sha256 TEXT, last_error TEXT,
+            completed_at TEXT, updated_at TEXT
+        )
+    """)
+    conn.execute("""
+        INSERT INTO media(
+            id, provider, external_id, creator, title, description,
+            source_url, published_at, duration_seconds, status, updated_at
+        ) VALUES(1, 'youtube', 'dQw4w9WgXcQ', 'creator-name',
+                 'captioned video', 'description',
+                 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+                 '', 213, 'pending', '')
+    """)
+    conn.commit()
+    row = conn.execute("SELECT * FROM media WHERE id=1").fetchone()
+
+    result = generic_media.process_row(conn, row)
+    final = Path(result["final_path"])
+    content = final.read_text(encoding="utf-8")
+
+    assert 'sponsor_filter_applied: true' in content
+    assert 'caption_probe_result: "hit"' in content
+    assert 'transcript_filter_reason: "youtube_sponsor_filter_conservative"' in content
+    assert 'sponsor_segments_filtered: 1' in content
+    assert "Today we are covering the benchmark results." in content
+    assert "Now back to the performance analysis." in content
+    transcript_section = content.split("## Transcript", 1)[1].split("## Filtered Sponsor Segments", 1)[0]
+    assert "This video is sponsored by Acme Cloud" not in transcript_section
+    assert "This video is sponsored by Acme Cloud" in content.split("## Filtered Sponsor Segments", 1)[1]
+
+
+def test_youtube_audio_fallback_marks_caption_probe_result(tmp_path, monkeypatch):
+    import generic_media
+
+    downloads = tmp_path / "downloads"
+    transcripts = tmp_path / "transcripts"
+    markdown = tmp_path / "markdown"
+    monkeypatch.setattr(generic_media, "ROOT", tmp_path)
+    monkeypatch.setattr(generic_media, "DOWNLOADS", downloads)
+    monkeypatch.setattr(generic_media, "TRANSCRIPTS", transcripts)
+    monkeypatch.setattr(generic_media, "MARKDOWN", markdown)
+    monkeypatch.setattr(generic_media, "REGISTRY_DB", tmp_path / "missing-registry.db")
+    monkeypatch.setattr(generic_media, "try_youtube_captions", lambda *a, **k: (None, None))
+    monkeypatch.setattr(generic_media, "youtube_access_args", lambda **k: [])
+    monkeypatch.setattr(generic_media, "youtube_sponsor_filter_mode", lambda: "off")
+
+    def fake_download(source_url, work, external_id):
+        media = work / "sample.mp3"
+        media.write_bytes(b"audio")
+        generic_media._write_audio_manifest(
+            work, media, source_url=source_url, external_id=external_id,
+            strategy="anonymous_default", uses_auth=False,
+        )
+        return media, "anonymous_default", False, [{
+            "strategy": "anonymous_default", "client": "default",
+            "uses_auth": False, "ok": True, "error": None,
+        }]
+
+    monkeypatch.setattr(generic_media, "download_youtube_audio", fake_download)
+    monkeypatch.setattr(generic_media, "transcribe_audio", lambda *a, **k: {
+        "text": "spoken content only",
+        "source": "local_whisper",
+        "model": "test-model",
+        "duration_seconds": 120.0,
+        "chunk_count": 1,
+        "chunk_seconds": None,
+        "resumed_from_checkpoint": False,
+    })
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("""
+        CREATE TABLE media (
+            id INTEGER PRIMARY KEY, provider TEXT, external_id TEXT,
+            creator TEXT, title TEXT, description TEXT, source_url TEXT,
+            published_at TEXT, duration_seconds REAL, status TEXT,
+            markdown_path TEXT, markdown_sha256 TEXT, last_error TEXT,
+            completed_at TEXT, updated_at TEXT
+        )
+    """)
+    conn.execute("""
+        INSERT INTO media(
+            id, provider, external_id, creator, title, description,
+            source_url, published_at, duration_seconds, status, updated_at
+        ) VALUES(1, 'youtube', 'abc123xyz00', 'creator-name',
+                 'audio fallback video', 'description',
+                 'https://www.youtube.com/watch?v=abc123xyz00',
+                 '', 120, 'pending', '')
+    """)
+    conn.commit()
+    row = conn.execute("SELECT * FROM media WHERE id=1").fetchone()
+
+    result = generic_media.process_row(conn, row)
+    final = Path(result["final_path"])
+    content = final.read_text(encoding="utf-8")
+
+    assert 'caption_probe_result: "fallback_to_audio"' in content
+    assert 'transcription_source: "local_whisper"' in content
+    assert 'transcript_filter_reason: "disabled"' in content
+    assert 'sponsor_filter_mode: "off"' in content
+
+
+def test_bilibili_captions_skip_audio_download_and_transcription(tmp_path, monkeypatch):
+    import generic_media
+
+    downloads = tmp_path / "downloads"
+    transcripts = tmp_path / "transcripts"
+    markdown = tmp_path / "markdown"
+    monkeypatch.setattr(generic_media, "ROOT", tmp_path)
+    monkeypatch.setattr(generic_media, "DOWNLOADS", downloads)
+    monkeypatch.setattr(generic_media, "TRANSCRIPTS", transcripts)
+    monkeypatch.setattr(generic_media, "MARKDOWN", markdown)
+    monkeypatch.setattr(generic_media, "REGISTRY_DB", tmp_path / "missing-registry.db")
+    monkeypatch.setattr(
+        generic_media,
+        "try_bilibili_captions",
+        lambda *a, **k: ("字幕第一行\n字幕第二行", "zh-CN"),
+    )
+    monkeypatch.setattr(
+        generic_media,
+        "download_bilibili_audio",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("audio download should not run when bilibili captions exist")),
+    )
+    monkeypatch.setattr(
+        generic_media,
+        "transcribe_audio",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("transcription should not run when bilibili captions exist")),
+    )
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("""
+        CREATE TABLE media (
+            id INTEGER PRIMARY KEY, provider TEXT, external_id TEXT,
+            creator TEXT, title TEXT, description TEXT, source_url TEXT,
+            published_at TEXT, duration_seconds REAL, status TEXT,
+            markdown_path TEXT, markdown_sha256 TEXT, last_error TEXT,
+            completed_at TEXT, updated_at TEXT
+        )
+    """)
+    conn.execute("""
+        INSERT INTO media(
+            id, provider, external_id, creator, title, description,
+            source_url, published_at, duration_seconds, status, updated_at
+        ) VALUES(1, 'bilibili', 'BV1xx411c7mD', 'creator-name',
+                 'captioned bilibili video', 'description',
+                 'https://www.bilibili.com/video/BV1xx411c7mD',
+                 '', 213, 'pending', '')
+    """)
+    conn.commit()
+    row = conn.execute("SELECT * FROM media WHERE id=1").fetchone()
+
+    result = generic_media.process_row(conn, row)
+    final = Path(result["final_path"])
+
+    assert final.is_file()
+    content = final.read_text(encoding="utf-8")
+    assert 'transcription_source: "bilibili_captions"' in content
+    assert 'caption_language: "zh-CN"' in content
+    assert 'caption_probe_result: "hit"' in content
+    assert "字幕第一行" in content
+    assert "字幕第二行" in content
+    assert not (downloads / "bilibili" / "creator-name" / "BV1xx411c7mD").exists()
+    assert not (transcripts / "bilibili" / "creator-name" / "BV1xx411c7mD").exists()
+
+
+def test_bilibili_audio_fallback_marks_caption_probe_result(tmp_path, monkeypatch):
+    import generic_media
+
+    downloads = tmp_path / "downloads"
+    transcripts = tmp_path / "transcripts"
+    markdown = tmp_path / "markdown"
+    monkeypatch.setattr(generic_media, "ROOT", tmp_path)
+    monkeypatch.setattr(generic_media, "DOWNLOADS", downloads)
+    monkeypatch.setattr(generic_media, "TRANSCRIPTS", transcripts)
+    monkeypatch.setattr(generic_media, "MARKDOWN", markdown)
+    monkeypatch.setattr(generic_media, "REGISTRY_DB", tmp_path / "missing-registry.db")
+    monkeypatch.setattr(generic_media, "try_bilibili_captions", lambda *a, **k: (None, None))
+
+    def fake_download(source_url, work, external_id):
+        media = work / "sample.m4a"
+        media.write_bytes(b"audio")
+        generic_media._write_audio_manifest(
+            work, media, source_url=source_url, external_id=external_id,
+            strategy="bilibili-api-audio-stream", uses_auth=False,
+        )
+        return media, "bilibili-api-audio-stream", False, [{
+            "strategy": "bilibili-api-audio-stream", "client": "bilibili-api",
+            "uses_auth": False, "ok": True, "error": None,
+        }]
+
+    monkeypatch.setattr(generic_media, "download_bilibili_audio", fake_download)
+    monkeypatch.setattr(generic_media, "transcribe_audio", lambda *a, **k: {
+        "text": "spoken bilibili content",
+        "source": "local_whisper",
+        "model": "test-model",
+        "duration_seconds": 120.0,
+        "chunk_count": 1,
+        "chunk_seconds": None,
+        "resumed_from_checkpoint": False,
+    })
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("""
+        CREATE TABLE media (
+            id INTEGER PRIMARY KEY, provider TEXT, external_id TEXT,
+            creator TEXT, title TEXT, description TEXT, source_url TEXT,
+            published_at TEXT, duration_seconds REAL, status TEXT,
+            markdown_path TEXT, markdown_sha256 TEXT, last_error TEXT,
+            completed_at TEXT, updated_at TEXT
+        )
+    """)
+    conn.execute("""
+        INSERT INTO media(
+            id, provider, external_id, creator, title, description,
+            source_url, published_at, duration_seconds, status, updated_at
+        ) VALUES(1, 'bilibili', 'BV1xx411c7mD', 'creator-name',
+                 'audio fallback bilibili video', 'description',
+                 'https://www.bilibili.com/video/BV1xx411c7mD',
+                 '', 120, 'pending', '')
+    """)
+    conn.commit()
+    row = conn.execute("SELECT * FROM media WHERE id=1").fetchone()
+
+    result = generic_media.process_row(conn, row)
+    final = Path(result["final_path"])
+    content = final.read_text(encoding="utf-8")
+
+    assert 'caption_probe_result: "fallback_to_audio"' in content
+    assert 'transcription_source: "local_whisper"' in content
+    assert "spoken bilibili content" in content
+
+
+def test_bilibili_creator_catalog_412_falls_back_to_ytdlp(tmp_path, monkeypatch):
+    import media2md_registry as registry
+
+    monkeypatch.setattr(registry, "DB", tmp_path / "media2md.db")
+    monkeypatch.setattr(registry, "CHECKPOINT_DIR", tmp_path / "checkpoints")
+    monkeypatch.setattr(registry, "CONFIG", tmp_path / "config.json")
+    (tmp_path / "config.json").write_text("{}", encoding="utf-8")
+
+    class _User:
+        def __init__(self, mid: int):
+            self.mid = mid
+
+        async def get_user_info(self):
+            raise RuntimeError("ERROR: Request is blocked by server (412), please wait and try later.")
+
+        async def get_videos(self, ps=30, pn=1):
+            raise AssertionError("official API page fetch should not run after 412 user info failure")
+
+    payload = {
+        "id": "2",
+        "entries": [
+            {
+                "id": "BV172421f7Km",
+                "url": "https://www.bilibili.com/video/BV172421f7Km?spm_id_from=333.1007",
+                "title": "BV172421f7Km",
+            },
+            {
+                "id": "BV1xx411c7mD",
+                "url": "https://www.bilibili.com/video/BV1xx411c7mD",
+                "title": "BV1xx411c7mD",
+                "timestamp": 1252458549,
+            },
+        ],
+    }
+
+    def fake_run_json(command_line, timeout, **kwargs):
+        assert command_line[-1] == "https://space.bilibili.com/2"
+        assert "--flat-playlist" in command_line
+        assert "--dump-single-json" in command_line
+        assert kwargs.get("strategy") == "bilibili-space-fallback"
+        return payload
+
+    monkeypatch.setitem(sys.modules, "bilibili_api.user", type("user_module", (), {"User": _User})())
+    monkeypatch.setattr(registry, "command", lambda name: name)
+    monkeypatch.setattr(registry, "run_json", fake_run_json)
+
+    meta, items = registry._extract_bilibili_catalog("https://space.bilibili.com/2", limit=100, start=1)
+
+    assert meta["external_id"] == "2"
+    assert meta["handle"] == "2"
+    assert meta["source_url"] == "https://space.bilibili.com/2"
+    assert meta["identifiers"] == {"mid": "2"}
+    assert [item["external_id"] for item in items] == ["BV1xx411c7mD", "BV172421f7Km"]
+    assert items[0]["source_url"] == "https://www.bilibili.com/video/BV1xx411c7mD"
+    assert items[0]["published_at"] == "2009-09-09T01:09:09+00:00"
+    assert items[1]["source_url"] == "https://www.bilibili.com/video/BV172421f7Km"
+    assert items[1]["media_type"] == "bilibili_video"
+    assert items[1]["processing_class"] == "bilibili_video"
+
+
+def test_social2md_uses_source_root_for_scripts_when_project_root_is_external(tmp_path, monkeypatch):
+    root = Path(__file__).resolve().parents[1]
+    script_path = root / "src" / "media2md" / "bundle" / "scripts" / "social2md.py"
+    module_name = "social2md_source_root_regression"
+    spec = importlib.util.spec_from_file_location(module_name, script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    original = os.environ.get("MEDIA2MD_PROJECT_ROOT")
+    monkeypatch.setenv("MEDIA2MD_PROJECT_ROOT", str(tmp_path / "external-project-root"))
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+
+    try:
+        assert module.ROOT == (tmp_path / "external-project-root").resolve()
+        assert module.SOURCE_ROOT == root / "src" / "media2md" / "bundle"
+        assert module.CORE == module.SOURCE_ROOT / "scripts" / "social2md_core.py"
+        assert module.REGISTRY == module.SOURCE_ROOT / "scripts" / "media2md_registry.py"
+        assert module.GENERIC == module.SOURCE_ROOT / "scripts" / "generic_media.py"
+        assert module.CONFIG == module.ROOT / "config" / "social2md.json"
+        assert not str(module.CORE).startswith(str(module.ROOT / "scripts"))
+        assert not str(module.REGISTRY).startswith(str(module.ROOT / "scripts"))
+    finally:
+        sys.modules.pop(module_name, None)
+        if original is None:
+            os.environ.pop("MEDIA2MD_PROJECT_ROOT", None)
+        else:
+            os.environ["MEDIA2MD_PROJECT_ROOT"] = original
+
+
 def test_command_failure_keeps_full_log_and_surfaces_root_cause(tmp_path, monkeypatch):
     import sys
     import media2md_runtime as runtime
@@ -419,7 +900,8 @@ def test_successful_leading_hyphen_video_writes_safe_markdown_and_keeps_original
     """)
     conn.commit()
     row = conn.execute("SELECT * FROM media WHERE id=1").fetchone()
-    final = generic_media.process_row(conn, row)
+    result = generic_media.process_row(conn, row)
+    final = Path(result["final_path"])
 
     assert final.name == "youtube_AHFhntQ07k.md"
     content = final.read_text(encoding="utf-8")

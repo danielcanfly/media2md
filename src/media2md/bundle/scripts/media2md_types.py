@@ -14,6 +14,7 @@ MEDIA_TYPES = (
     "youtube_short",
     "youtube_stream",
     "tiktok_video",
+    "bilibili_video",
 )
 
 PROCESSING_CLASSES = (*MEDIA_TYPES, "youtube_long")
@@ -27,6 +28,7 @@ DEFAULT_BATCH_SIZES: dict[str, int] = {
     "youtube_video": 5,
     "youtube_long": 1,
     "youtube_stream": 1,
+    "bilibili_video": 5,
 }
 
 YOUTUBE_SURFACE_TYPES = {
@@ -43,6 +45,7 @@ _TYPE_PRIORITY = {
     "instagram_post": 10,
     "instagram_carousel": 10,
     "tiktok_video": 10,
+    "bilibili_video": 10,
 }
 
 
@@ -68,6 +71,8 @@ def infer_media_type(
         if "/live/" in url or url.rstrip("/").endswith(("/streams", "/live")):
             return "youtube_stream"
         return "youtube_video"
+    if provider == "bilibili":
+        return "bilibili_video"
     raise ValueError(f"Unsupported provider: {provider}")
 
 
@@ -98,6 +103,7 @@ def output_bucket(media_type: str) -> str:
         "instagram_post": "posts",
         "instagram_carousel": "posts",
         "tiktok_video": "videos",
+        "bilibili_video": "videos",
     }.get(str(media_type), "media")
 
 

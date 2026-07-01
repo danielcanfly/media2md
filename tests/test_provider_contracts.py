@@ -11,6 +11,7 @@ EXPECTED_BACKENDS = {
     "instagram": ["gallery-dl", "instaloader"],
     "youtube": ["yt-dlp", "yt-dlp-ejs"],
     "tiktok": ["yt-dlp"],
+    "bilibili": ["bilibili-api"],
 }
 
 
@@ -22,7 +23,7 @@ def test_provider_registry_not_empty():
 def test_provider_catalog_not_empty_and_ordered():
     catalog = provider_catalog()
     assert catalog
-    assert provider_names() == ("instagram", "youtube", "tiktok")
+    assert provider_names() == ("instagram", "youtube", "tiktok", "bilibili")
     assert registered_provider_names() == provider_names()
 
 
@@ -62,7 +63,7 @@ def test_provider_adapter_lookup_is_case_insensitive():
 
 def test_provider_contract_surface():
     for adapter in all_provider_adapters():
-        assert adapter.name in {"instagram", "youtube", "tiktok"}
+        assert adapter.name in {"instagram", "youtube", "tiktok", "bilibili"}
         assert isinstance(adapter.backends, list)
         assert adapter.backends
         assert len(adapter.backends) == len(set(adapter.backends))
@@ -102,6 +103,7 @@ def test_provider_can_handle_own_urls():
         "instagram": "https://www.instagram.com/example/",
         "youtube": "https://www.youtube.com/@creator-name/videos",
         "tiktok": "https://www.tiktok.com/@creator-name",
+        "bilibili": "https://space.bilibili.com/2",
     }
     for adapter in all_provider_adapters():
         assert adapter.can_handle_url(samples[adapter.name]) is True
@@ -112,6 +114,7 @@ def test_provider_does_not_claim_other_provider_urls():
         "instagram": "https://www.instagram.com/example/",
         "youtube": "https://www.youtube.com/@creator-name/videos",
         "tiktok": "https://www.tiktok.com/@creator-name",
+        "bilibili": "https://space.bilibili.com/2",
     }
     for adapter in all_provider_adapters():
         for provider_name, sample in samples.items():
@@ -125,11 +128,13 @@ def test_provider_creator_resolution():
         "instagram": ("https://www.instagram.com/creator.name/reels/", "creator.name", None),
         "youtube": ("https://www.youtube.com/@creator-name/videos", "creator-name", "videos"),
         "tiktok": ("https://www.tiktok.com/@creator_name", "creator_name", None),
+        "bilibili": ("https://space.bilibili.com/2", "2", None),
     }
     inputs = {
         "instagram": "@creator.name",
         "youtube": "@creator-name",
         "tiktok": "@creator_name",
+        "bilibili": "2",
     }
     for adapter in all_provider_adapters():
         result = adapter.resolve_creator_input(inputs[adapter.name])
@@ -157,6 +162,7 @@ def test_provider_resolution_matches_shared_resolution_path():
         "instagram": ("@creator.name", "instagram"),
         "youtube": "https://www.youtube.com/@creator-name",
         "tiktok": "https://www.tiktok.com/@creator_name",
+        "bilibili": "https://space.bilibili.com/2",
     }
     for adapter in all_provider_adapters():
         case = cases[adapter.name]

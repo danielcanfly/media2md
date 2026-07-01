@@ -5,12 +5,14 @@ import re
 from dataclasses import dataclass
 from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit
 
-PROVIDERS = ("instagram", "youtube", "tiktok")
+PROVIDERS = ("instagram", "youtube", "tiktok", "bilibili")
 YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 TIKTOK_ID_RE = re.compile(r"^\d{8,24}$")
 INSTAGRAM_CODE_RE = re.compile(r"^[A-Za-z0-9_-]{5,30}$")
+BILIBILI_BVID_RE = re.compile(r"^BV[A-Za-z0-9]{10}$")
 HANDLE_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 INSTAGRAM_MEDIA_SURFACES = ("reel", "post", "tv")
+BILIBILI_UID_RE = re.compile(r"^\d{1,20}$")
 
 
 @dataclass(frozen=True)
@@ -34,6 +36,8 @@ def detect_provider(value: str) -> str | None:
         return "youtube"
     if "tiktok.com" in lower:
         return "tiktok"
+    if "bilibili.com" in lower or "b23.tv" in lower or BILIBILI_BVID_RE.fullmatch(value.strip()):
+        return "bilibili"
     return None
 
 
@@ -119,6 +123,16 @@ def normalize_creator(provider: str, value: str) -> NormalizedTarget:
             raise ValueError("Expected a YouTube channel, not a media URL.")
         return _youtube_creator_target(path, scheme=parts.scheme or "https", netloc=parts.netloc or "www.youtube.com")
 
+    if provider == "bilibili":
+        if BILIBILI_UID_RE.fullmatch(text):
+            uid = text
+            return NormalizedTarget(provider, "creator", f"https://space.bilibili.com/{uid}", creator=uid)
+        match = re.search(r"space\.bilibili\.com/(\d+)", text, re.I)
+        if match:
+            uid = match.group(1)
+            return NormalizedTarget(provider, "creator", f"https://space.bilibili.com/{uid}", creator=uid)
+        raise ValueError("Expected a Bilibili space URL or numeric creator ID.")
+
     raise ValueError(f"Unsupported provider: {provider}")
 
 
@@ -165,6 +179,15 @@ def normalize_media(provider: str, value: str, creator: str | None = None) -> No
         surface, code = resolved
         surface_path = "p" if surface == "post" else surface
         return NormalizedTarget(provider, "media", f"https://www.instagram.com/{surface_path}/{code}/", media_id=code, surface=surface)
+
+    if provider == "bilibili":
+        if BILIBILI_BVID_RE.fullmatch(text):
+            return NormalizedTarget(provider, "media", f"https://www.bilibili.com/video/{text}", media_id=text)
+        match = re.search(r"(BV[A-Za-z0-9]{10})", text)
+        if not match:
+            raise ValueError("Could not determine a Bilibili BV video ID.")
+        bvid = match.group(1)
+        return NormalizedTarget(provider, "media", f"https://www.bilibili.com/video/{bvid}", media_id=bvid)
 
     raise ValueError(f"Unsupported provider: {provider}")
 

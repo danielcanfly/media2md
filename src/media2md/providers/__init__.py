@@ -11,3 +11,16 @@ def get_provider_adapters():
         YouTubeAdapter(),
         TikTokAdapter(),
     ]
+from .bilibili import BilibiliAdapter
+from .instagram import InstagramAdapter
+from .tiktok import TikTokAdapter
+from .youtube import YouTubeAdapter
+
+
+def get_provider_adapters():
+    return [
+        InstagramAdapter(),
+        YouTubeAdapter(),
+        TikTokAdapter(),
+        BilibiliAdapter(),
+    ]

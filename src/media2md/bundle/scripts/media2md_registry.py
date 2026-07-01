@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
 import json
 import os
@@ -43,7 +44,18 @@ from media2md_youtube_session import youtube_auth_args, verify_youtube_session
 
 from media2md_auth_shared import refresh_if_configured
 
-ROOT = Path(__file__).resolve().parents[1]
+
+def _project_root() -> Path:
+    explicit = os.environ.get("MEDIA2MD_PROJECT_ROOT")
+    if explicit:
+        root = Path(explicit).expanduser().resolve()
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+    return Path(__file__).resolve().parents[1]
+
+
+SOURCE_ROOT = Path(__file__).resolve().parents[1]
+ROOT = _project_root()
 DB = ROOT / "data" / "media2md.db"
 LEGACY_INSTAGRAM_DB = ROOT / "data" / "state.db"
 LEGACY_GENERIC_DB = ROOT / "data" / "social2md_media.db"
@@ -55,7 +67,7 @@ RUN_DIR = ROOT / "logs" / "runs"
 QUARANTINE = ROOT / "data" / "quarantine"
 CHECKPOINT_DIR = ROOT / "data" / "provider_catalog_checkpoints"
 TIKTOK_CURSOR_STATE = CHECKPOINT_DIR / "tiktok-cursor-state.json"
-SUPPORTED = ("instagram", "youtube", "tiktok")
+SUPPORTED = ("instagram", "youtube", "tiktok", "bilibili")
 
 
 def iso_now() -> str:
@@ -63,7 +75,7 @@ def iso_now() -> str:
 
 
 def safe_name(value: str) -> str:
-    clean = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip().lstrip("@"))
+    clean = re.sub(r"[^\w.-]+", "_", value.strip().lstrip("@"), flags=re.UNICODE)
     return clean[:150] or "unknown"
 
 
@@ -324,6 +336,10 @@ def provider_from_url(value: str) -> str | None:
 def normalize_creator(provider: str, value: str) -> tuple[str, str]:
     target = normalize_creator_target(provider, value)
     return str(target.creator), target.canonical_url
+
+
+def _is_bilibili_mid(value: str | None) -> bool:
+    return bool(re.fullmatch(r"\d{1,20}", str(value or "").strip()))
 
 
 def _is_tiktok_opaque_identifier(value: str | None) -> bool:
@@ -1587,6 +1603,8 @@ def _extract_catalog_once(
     tiktok_profile_url_hint: str | None = None,
     tiktok_page_state: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    if provider == "bilibili":
+        return _extract_bilibili_catalog(source_url, limit, start)
     surface = youtube_surface_from_url(source_url) if provider == "youtube" else None
     surface_media_type = media_type_for_youtube_surface(surface) if surface else None
     threshold = youtube_long_threshold_seconds()
@@ -1666,6 +1684,126 @@ def _extract_catalog_once(
         })
     normalized.sort(key=lambda x: (x.get("published_at") or "", x["external_id"]), reverse=True)
     return meta, normalized
+
+
+def _extract_bilibili_catalog(source_url: str, limit: int | None, start: int | None) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    try:
+        from bilibili_api.user import User
+    except ImportError as exc:
+        raise RuntimeError('Bilibili creator sync requires the Bilibili extra. Run: python -m pip install -U "media2md[bilibili]"') from exc
+
+    match = re.search(r"space\.bilibili\.com/(\d+)", str(source_url), re.I)
+    if not match:
+        raise RuntimeError("Bilibili creator sync requires a canonical space URL.")
+    mid = int(match.group(1))
+    page = max(1, int(start or 1))
+    page_size = max(1, min(50, int(limit or 30)))
+
+    async def _load() -> tuple[dict[str, Any], dict[str, Any]]:
+        user = User(mid)
+        info = await user.get_user_info()
+        videos = await user.get_videos(ps=page_size, pn=page)
+        return info, videos
+
+    try:
+        info, videos = asyncio.run(_load())
+    except Exception as exc:
+        message = str(exc)
+        if "412" not in message and "风控" not in message and "security control policy" not in message.lower():
+            raise
+        payload = run_json(
+            [
+                command("yt-dlp"),
+                "--flat-playlist",
+                "--dump-single-json",
+                "--ignore-errors",
+                "--no-warnings",
+                source_url,
+            ],
+            timeout=3600,
+            strategy="bilibili-space-fallback",
+            heartbeat_context=f"provider=bilibili creator={mid} strategy=yt-dlp-space-fallback",
+        )
+        entries = payload.get("entries") or []
+        meta = {
+            "external_id": str(mid),
+            "handle": str(mid),
+            "display_name": str(mid),
+            "source_url": f"https://space.bilibili.com/{mid}",
+            "identifiers": {"mid": str(mid)},
+        }
+        items: list[dict[str, Any]] = []
+        threshold = youtube_long_threshold_seconds()
+        for raw in entries:
+            if not isinstance(raw, dict):
+                continue
+            bvid = str(raw.get("id") or "").strip()
+            if not bvid:
+                continue
+            source = str(raw.get("url") or raw.get("webpage_url") or "").strip()
+            if not source:
+                source = f"https://www.bilibili.com/video/{bvid}"
+            items.append({
+                "external_id": bvid,
+                "title": str(raw.get("title") or bvid),
+                "description": str(raw.get("description") or ""),
+                "source_url": source.split("?", 1)[0].split("#", 1)[0],
+                "published_at": parse_timestamp(raw),
+                "duration_seconds": raw.get("duration"),
+                "media_type": "bilibili_video",
+                "processing_class": processing_class("bilibili_video", raw.get("duration"), long_threshold_seconds=threshold),
+                "catalog_surface": None,
+            })
+        items.sort(key=lambda x: (x.get("published_at") or "", x["external_id"]), reverse=True)
+        return meta, items
+
+    handle = str(info.get("name") or mid).strip() or str(mid)
+    display_name = handle
+    data = (videos.get("list") or {}) if isinstance(videos, dict) else {}
+    vlist = data.get("vlist") or []
+    meta = {
+        "external_id": str(mid),
+        "handle": handle,
+        "display_name": display_name,
+        "source_url": f"https://space.bilibili.com/{mid}",
+        "identifiers": {"mid": str(mid)},
+    }
+    items: list[dict[str, Any]] = []
+    threshold = youtube_long_threshold_seconds()
+    for raw in vlist:
+        if not isinstance(raw, dict):
+            continue
+        bvid = str(raw.get("bvid") or "").strip()
+        if not bvid:
+            continue
+        created = raw.get("created")
+        published_at = None
+        try:
+            if created is not None:
+                published_at = datetime.fromtimestamp(int(created), tz=timezone.utc).isoformat(timespec="seconds")
+        except (TypeError, ValueError, OSError):
+            published_at = None
+        duration_value = raw.get("length")
+        duration_seconds = None
+        if isinstance(duration_value, str):
+            bits = [int(part) for part in duration_value.split(":") if part.isdigit()]
+            if len(bits) == 3:
+                duration_seconds = bits[0] * 3600 + bits[1] * 60 + bits[2]
+            elif len(bits) == 2:
+                duration_seconds = bits[0] * 60 + bits[1]
+        items.append({
+            "external_id": bvid,
+            "title": str(raw.get("title") or bvid),
+            "description": str(raw.get("description") or ""),
+            "source_url": f"https://www.bilibili.com/video/{bvid}",
+            "published_at": published_at,
+            "duration_seconds": duration_seconds,
+            "media_type": "bilibili_video",
+            "processing_class": processing_class("bilibili_video", duration_seconds, long_threshold_seconds=threshold),
+            "catalog_surface": None,
+        })
+    items.sort(key=lambda x: (x.get("published_at") or "", x["external_id"]), reverse=True)
+    return meta, items
 
 
 def _tiktok_identity_from_media_url(source_url: str) -> tuple[str, dict[str, str]] | None:
@@ -3020,17 +3158,20 @@ def _creator_run_unlocked(provider: str, creator_value: str, mode: str, batch_si
                 return 0 if failures == 0 else 2
             item_started = time.monotonic()
             cmd = [
-                sys.executable, str(ROOT / "scripts" / "generic_media.py"),
+                sys.executable, str(SOURCE_ROOT / "scripts" / "generic_media.py"),
                 "process-registered", provider, str(row["external_id"]),
             ]
             if output == "ndjson":
                 cmd += ["--output", "ndjson"]
+            env = os.environ.copy()
+            env.setdefault("MEDIA2MD_PROJECT_ROOT", str(ROOT))
             item_timeout = None
             if runtime_limit is not None:
                 item_timeout = max(1, int(runtime_limit - (time.monotonic() - started)))
             process = subprocess.Popen(
                 cmd,
                 cwd=ROOT,
+                env=env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -3729,7 +3870,7 @@ def main() -> int:
     sub=parser.add_subparsers(dest="cmd",required=True)
     sub.add_parser("migrate"); sub.add_parser("refresh-legacy"); repair=sub.add_parser("repair-identities"); repair.add_argument("--offline", action="store_true")
     sync=sub.add_parser("sync"); sync.add_argument("provider",choices=SUPPORTED); sync.add_argument("creator"); sync.add_argument("--mode",choices=("quick","full"),default="full"); sync.add_argument("--quick-window",type=int,default=100)
-    runp=sub.add_parser("run"); runp.add_argument("provider",choices=("youtube","tiktok")); runp.add_argument("creator"); runp.add_argument("--mode",choices=("batch","drain"),default="batch"); runp.add_argument("--batch-size",type=int,default=100); runp.add_argument("--batch-sizes-json"); runp.add_argument("--max-batches",type=int,default=0); runp.add_argument("--max-failures",type=int,default=10); runp.add_argument("--max-runtime-minutes",type=int,default=360); runp.add_argument("--stop-on-failure",action="store_true"); runp.add_argument("--sleep-between-batches",type=float,default=5); runp.add_argument("--since"); runp.add_argument("--until"); runp.add_argument("--rank-from",type=int); runp.add_argument("--rank-to",type=int); runp.add_argument("--order",choices=("newest_first","oldest_first"),default="newest_first"); runp.add_argument("--output",choices=("human","ndjson"),default="human")
+    runp=sub.add_parser("run"); runp.add_argument("provider",choices=("youtube","tiktok","bilibili")); runp.add_argument("creator"); runp.add_argument("--mode",choices=("batch","drain"),default="batch"); runp.add_argument("--batch-size",type=int,default=100); runp.add_argument("--batch-sizes-json"); runp.add_argument("--max-batches",type=int,default=0); runp.add_argument("--max-failures",type=int,default=10); runp.add_argument("--max-runtime-minutes",type=int,default=360); runp.add_argument("--stop-on-failure",action="store_true"); runp.add_argument("--sleep-between-batches",type=float,default=5); runp.add_argument("--since"); runp.add_argument("--until"); runp.add_argument("--rank-from",type=int); runp.add_argument("--rank-to",type=int); runp.add_argument("--order",choices=("newest_first","oldest_first"),default="newest_first"); runp.add_argument("--output",choices=("human","ndjson"),default="human")
     sub.add_parser("status")
     delete=sub.add_parser("delete-creator"); delete.add_argument("provider",choices=SUPPORTED); delete.add_argument("creator"); delete.add_argument("--yes",action="store_true")
     args=parser.parse_args()

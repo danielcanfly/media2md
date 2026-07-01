@@ -65,6 +65,40 @@ def test_instagram_media_types_include_post_and_carousel():
     assert media_types.output_bucket("instagram_carousel") == "posts"
 
 
+def test_bilibili_media_normalization_and_type_support():
+    from media2md.urls import detect_provider, normalize_media
+
+    target = normalize_media("bilibili", "https://www.bilibili.com/video/BV1xx411c7mD/?spm_id_from=333.1007.tianma.1-1-1.click")
+    bare = normalize_media("bilibili", "BV1xx411c7mD")
+
+    assert detect_provider("BV1xx411c7mD") == "bilibili"
+    assert target.canonical_url == "https://www.bilibili.com/video/BV1xx411c7mD"
+    assert target.media_id == "BV1xx411c7mD"
+    assert bare.canonical_url == "https://www.bilibili.com/video/BV1xx411c7mD"
+
+
+def test_bilibili_creator_normalization_supports_space_url_and_mid():
+    from media2md.urls import normalize_creator
+
+    space = normalize_creator("bilibili", "https://space.bilibili.com/2")
+    bare = normalize_creator("bilibili", "2")
+
+    assert space.canonical_url == "https://space.bilibili.com/2"
+    assert space.creator == "2"
+    assert bare.canonical_url == "https://space.bilibili.com/2"
+    assert bare.creator == "2"
+
+
+def test_bundled_bilibili_media_type_support():
+    media_types = _load_module(
+        ROOT / "src" / "media2md" / "bundle" / "scripts" / "media2md_types.py",
+        "test_batch_b_bilibili_media2md_types",
+    )
+
+    assert media_types.infer_media_type("bilibili", "https://www.bilibili.com/video/BV1xx411c7mD") == "bilibili_video"
+    assert media_types.output_bucket("bilibili_video") == "videos"
+
+
 def test_generic_media_instagram_instaloader_post_payload_is_classified(monkeypatch):
     generic_media = _load_module(
         ROOT / "src" / "media2md" / "bundle" / "scripts" / "generic_media.py",

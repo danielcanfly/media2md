@@ -129,14 +129,24 @@ except ModuleNotFoundError:
             return tuple(None for _ in attr_names)
         return tuple(getattr(module, attr_name, None) for attr_name in attr_names)
 
-ROOT = Path(__file__).resolve().parents[1]
-CORE = ROOT / "scripts" / "social2md_core.py"
-REGISTRY = ROOT / "scripts" / "media2md_registry.py"
-AUTH = ROOT / "scripts" / "media2md_auth.py"
-GENERIC = ROOT / "scripts" / "generic_media.py"
-UPDATE = ROOT / "scripts" / "media2md_update.py"
-DOCTOR = ROOT / "scripts" / "media2md_doctor.py"
-BACKUP = ROOT / "scripts" / "media2md_backup.py"
+def _project_root() -> Path:
+    explicit = os.environ.get("MEDIA2MD_PROJECT_ROOT")
+    if explicit:
+        root = Path(explicit).expanduser().resolve()
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+    return Path(__file__).resolve().parents[1]
+
+
+SOURCE_ROOT = Path(__file__).resolve().parents[1]
+ROOT = _project_root()
+CORE = SOURCE_ROOT / "scripts" / "social2md_core.py"
+REGISTRY = SOURCE_ROOT / "scripts" / "media2md_registry.py"
+AUTH = SOURCE_ROOT / "scripts" / "media2md_auth.py"
+GENERIC = SOURCE_ROOT / "scripts" / "generic_media.py"
+UPDATE = SOURCE_ROOT / "scripts" / "media2md_update.py"
+DOCTOR = SOURCE_ROOT / "scripts" / "media2md_doctor.py"
+BACKUP = SOURCE_ROOT / "scripts" / "media2md_backup.py"
 CONFIG = ROOT / "config" / "social2md.json"
 POLICIES = ROOT / "config" / "provider_policies.json"
 SCHEDULER_STATE = ROOT / "data" / "media2md_scheduler_state.json"
@@ -447,6 +457,8 @@ def settings_set(args: argparse.Namespace) -> int:
         config.setdefault("providers",{}).setdefault("youtube",{})["caption_first"]=args.youtube_caption_first
     if getattr(args, "youtube_caption_languages", None):
         config.setdefault("providers",{}).setdefault("youtube",{})["caption_languages"]=[item.strip() for item in args.youtube_caption_languages.split(",") if item.strip()]
+    if getattr(args, "youtube_sponsor_filter", None):
+        config.setdefault("providers",{}).setdefault("youtube",{})["sponsor_filter"]=args.youtube_sponsor_filter
     if getattr(args, "youtube_audio_strategies", None):
         config.setdefault("providers",{}).setdefault("youtube",{})["audio_download_strategies"]=[item.strip() for item in args.youtube_audio_strategies.split(",") if item.strip()]
     if getattr(args, "youtube_long_video_threshold_minutes", None) is not None:
@@ -722,7 +734,7 @@ def add_creator(args: argparse.Namespace) -> int:
                 import yaml  # type: ignore  # noqa: F401
             except ImportError as exc:
                 raise RuntimeError('Instagram support is not installed. Run: python -m pip install "media2md[instagram]"') from exc
-            manager = ROOT / "scripts" / "manage_creators.py"
+            manager = SOURCE_ROOT / "scripts" / "manage_creators.py"
             result = subprocess.run([sys.executable, str(manager), "add", args.creator], cwd=ROOT)
             if result.returncode not in (0,):
                 # Existing creator is not a destructive error for an idempotent add command.
@@ -1101,7 +1113,7 @@ def parser() -> argparse.ArgumentParser:
         status=sub.add_parser("status"); status.add_argument("--output",choices=("human","ndjson"),default="human"); status.set_defaults(func=system_status)
         settingsp=sub.add_parser("settings"); setsub=settingsp.add_subparsers(dest="settings_command",required=True)
         show=setsub.add_parser("show"); show.add_argument("--output",choices=("human","ndjson"),default="human"); show.set_defaults(func=settings_show)
-        setcmd=setsub.add_parser("set"); setcmd.add_argument("--instagram-backend",choices=("auto","gallery-dl","instaloader")); setcmd.add_argument("--youtube-js-runtime",choices=("auto","deno","node","quickjs")); setcmd.add_argument("--youtube-allow-remote-ejs",action=argparse.BooleanOptionalAction); setcmd.add_argument("--youtube-po-token-provider",choices=("disabled","none","bgutil","wpc-experimental")); setcmd.add_argument("--youtube-pot-browser-path"); setcmd.add_argument("--youtube-caption-first",action=argparse.BooleanOptionalAction); setcmd.add_argument("--youtube-caption-languages"); setcmd.add_argument("--youtube-audio-strategies"); setcmd.add_argument("--youtube-long-video-threshold-minutes",type=float); setcmd.add_argument("--youtube-chunk-minutes",type=float); setcmd.add_argument("--youtube-chunk-model"); setcmd.add_argument("--tiktok-impersonate"); setcmd.add_argument("--update-check-every-days",type=float); setcmd.add_argument("--update-check-on-use",action=argparse.BooleanOptionalAction); setcmd.add_argument("--output",choices=("human","ndjson"),default="human"); setcmd.set_defaults(func=settings_set)
+        setcmd=setsub.add_parser("set"); setcmd.add_argument("--instagram-backend",choices=("auto","gallery-dl","instaloader")); setcmd.add_argument("--youtube-js-runtime",choices=("auto","deno","node","quickjs")); setcmd.add_argument("--youtube-allow-remote-ejs",action=argparse.BooleanOptionalAction); setcmd.add_argument("--youtube-po-token-provider",choices=("disabled","none","bgutil","wpc-experimental")); setcmd.add_argument("--youtube-pot-browser-path"); setcmd.add_argument("--youtube-caption-first",action=argparse.BooleanOptionalAction); setcmd.add_argument("--youtube-caption-languages"); setcmd.add_argument("--youtube-sponsor-filter",choices=("off","conservative","aggressive")); setcmd.add_argument("--youtube-audio-strategies"); setcmd.add_argument("--youtube-long-video-threshold-minutes",type=float); setcmd.add_argument("--youtube-chunk-minutes",type=float); setcmd.add_argument("--youtube-chunk-model"); setcmd.add_argument("--tiktok-impersonate"); setcmd.add_argument("--update-check-every-days",type=float); setcmd.add_argument("--update-check-on-use",action=argparse.BooleanOptionalAction); setcmd.add_argument("--output",choices=("human","ndjson"),default="human"); setcmd.set_defaults(func=settings_set)
         agentp=sub.add_parser("agent"); agentsub=agentp.add_subparsers(dest="agent_command",required=True); ast=agentsub.add_parser("status"); ast.add_argument("--output",choices=("human","ndjson"),default="human"); ast.set_defaults(func=agent_status)
         init=sub.add_parser("init")
         init.add_argument("--language", "--ui-locale", dest="language", choices=LOCALES)

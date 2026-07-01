@@ -62,6 +62,17 @@ _CATALOG: tuple[ProviderMetadata, ...] = (
         ),
         extra="tiktok",
     ),
+    ProviderMetadata(
+        name="bilibili",
+        backends=("bilibili-api",),
+        capabilities=ProviderCapabilities(single_media=True, creator_sync=True, batch_drain=True),
+        command_capabilities=ProviderCommandCapabilities(
+            read=("auth status", "creator status", "creator policy show"),
+            write=("creator add", "creator refresh-catalog", "creator run"),
+            confirmation=("creator delete",),
+        ),
+        extra="bilibili",
+    ),
 )
 
 

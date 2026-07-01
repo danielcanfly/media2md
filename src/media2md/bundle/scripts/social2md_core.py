@@ -35,7 +35,17 @@ except ModuleNotFoundError:
 
 from media2md_paths import command_path
 
-ROOT = Path(__file__).resolve().parents[1]
+def _project_root() -> Path:
+    explicit = os.environ.get("MEDIA2MD_PROJECT_ROOT")
+    if explicit:
+        root = Path(explicit).expanduser().resolve()
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+    return Path(__file__).resolve().parents[1]
+
+
+SOURCE_ROOT = Path(__file__).resolve().parents[1]
+ROOT = _project_root()
 CONFIG_PATH = ROOT / "config" / "social2md.json"
 POLICY_PATH = ROOT / "config" / "creator_policies.json"
 SCHEDULER_STATE_PATH = ROOT / "data" / "social2md_scheduler_state.json"
@@ -44,9 +54,9 @@ DB_PATH = ROOT / "data" / "state.db"
 CATALOG_DIR = ROOT / "data" / "creator_catalogs"
 RUN_DIR = ROOT / "logs" / "runs"
 SCHEDULER_LOCK = ROOT / "logs" / "social2md-scheduler.lock"
-ENGINE = ROOT / "scripts" / "creator_bulk.py"
-OPENCLAW_SKILL_SOURCE = ROOT / "openclaw" / "SKILL.md"
-GENERIC_MEDIA = ROOT / "scripts" / "generic_media.py"
+ENGINE = SOURCE_ROOT / "scripts" / "creator_bulk.py"
+OPENCLAW_SKILL_SOURCE = SOURCE_ROOT / "openclaw" / "SKILL.md"
+GENERIC_MEDIA = SOURCE_ROOT / "scripts" / "generic_media.py"
 VERSION = "0.4.0"
 
 PROFILE_RE = re.compile(r"https?://(?:www\.)?instagram\.com/([A-Za-z0-9._]+)/?", re.I)
@@ -1065,7 +1075,7 @@ def run_generic_media(args: argparse.Namespace) -> int:
     if provider == "instagram" and args.media_command == "add":
         command = [
             sys.executable,
-            str(ROOT / "scripts" / "manage_videos.py"),
+            str(SOURCE_ROOT / "scripts" / "manage_videos.py"),
             "add",
             "--url",
             args.url,

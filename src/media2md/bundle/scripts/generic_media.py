@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import hashlib
 import json
 import os
@@ -46,10 +47,13 @@ except ModuleNotFoundError:
 def _project_root() -> Path:
     explicit = os.environ.get("MEDIA2MD_PROJECT_ROOT")
     if explicit:
-        return Path(explicit).expanduser().resolve()
+        root = Path(explicit).expanduser().resolve()
+        root.mkdir(parents=True, exist_ok=True)
+        return root
     return Path(__file__).resolve().parents[1]
 
 
+SOURCE_ROOT = Path(__file__).resolve().parents[1]
 ROOT = _project_root()
 DB = ROOT / "data" / "social2md_media.db"
 CONFIG = ROOT / "config" / "social2md.json"
@@ -59,7 +63,7 @@ DOWNLOADS = ROOT / "workspace" / "generic_downloads"
 TRANSCRIPTS = ROOT / "workspace" / "generic_transcripts"
 MARKDOWN = ROOT / "markdown"
 MODEL = os.getenv("WHISPER_MODEL", "mlx-community/whisper-large-v3-turbo")
-INSTALOADER_HELPER = ROOT / "scripts" / "instagram_instaloader.py"
+INSTALOADER_HELPER = SOURCE_ROOT / "scripts" / "instagram_instaloader.py"
 TIKTOK_DOWNLOAD_HINT = ROOT / "data" / "state" / "tiktok_download_transport.json"
 
 
@@ -218,7 +222,7 @@ def sync_registry(provider: str, external_id: str, row: sqlite3.Row) -> None:
 
 def detect_provider(value: str, explicit: str | None = None) -> str:
     provider=explicit or detect_provider_from_value(value)
-    if provider not in {"instagram","youtube","tiktok"}:
+    if provider not in {"instagram","youtube","tiktok","bilibili"}:
         raise RuntimeError("Provider is required for bare handles or media IDs.")
     return provider
 
@@ -824,6 +828,10 @@ def canonical_media_source(provider: str, external_id: str, source_url: str, cre
         if not handle:
             raise StageError("validation", "TikTok media has no human-readable creator handle.", retryable=False)
         return f"https://www.tiktok.com/@{handle}/video/{external_id}"
+    if provider == "bilibili":
+        if not re.fullmatch(r"BV[A-Za-z0-9]{10}", external_id):
+            raise StageError("validation", f"Invalid Bilibili BV video ID: {external_id}", retryable=False)
+        return f"https://www.bilibili.com/video/{external_id}"
     try:
         return normalize_media(provider, source_url, creator=creator).canonical_url
     except ValueError as exc:
@@ -895,6 +903,8 @@ def inspect(value: str, provider: str | None = None, creator: str | None = None)
         if not tiktok_creator:
             raise RuntimeError("TikTok metadata inspection requires a human-readable creator handle.")
         data = inspect_tiktok_metadata(url, tiktok_creator, str(target.media_id or ""))
+    elif provider == "bilibili":
+        data = inspect_bilibili_metadata(url, str(target.media_id or ""))
     else:
         ytdlp_args = youtube_runtime_args()
         public_cmd = [command("yt-dlp"), *ytdlp_args, "--dump-single-json", "--skip-download", "--no-playlist", url]
@@ -912,6 +922,7 @@ def inspect(value: str, provider: str | None = None, creator: str | None = None)
         data = json.loads(result.stdout)
     upload=str(data.get("upload_date") or ""); published=None
     if re.fullmatch(r"\d{8}",upload): published=datetime.strptime(upload,"%Y%m%d").replace(tzinfo=timezone.utc).isoformat(timespec="seconds")
+    published = str(data.get("_media2md_bilibili_published_at") or published or "") or None
     identifiers: dict[str, str] = {}
     if provider=="tiktok":
         sec_uid = str(data.get("channel_id") or "").strip()
@@ -994,6 +1005,7 @@ def connect() -> sqlite3.Connection:
     conn.execute("UPDATE media SET media_type='instagram_reel' WHERE provider='instagram' AND (media_type IS NULL OR media_type='')")
     conn.execute("UPDATE media SET media_type='tiktok_video' WHERE provider='tiktok' AND (media_type IS NULL OR media_type='')")
     conn.execute("UPDATE media SET media_type='youtube_video' WHERE provider='youtube' AND (media_type IS NULL OR media_type='')")
+    conn.execute("UPDATE media SET media_type='bilibili_video' WHERE provider='bilibili' AND (media_type IS NULL OR media_type='')")
     conn.execute(
         "UPDATE media SET processing_class=CASE WHEN provider='youtube' AND media_type='youtube_video' "
         "AND COALESCE(duration_seconds,0)>=? THEN 'youtube_long' ELSE media_type END "
@@ -1005,7 +1017,7 @@ def connect() -> sqlite3.Connection:
 
 
 def safe(value: str) -> str:
-    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", value.strip())
+    cleaned = re.sub(r"[^\w.-]+", "_", value.strip(), flags=re.UNICODE)
     return cleaned[:120] or "unknown"
 
 
@@ -1024,6 +1036,7 @@ def locale_pack() -> dict[str, str]:
             "combined_ocr": "Combined OCR Notes",
             "image": "Image",
             "no_image_text": "_No text detected in image._",
+            "filtered_sponsor_segments": "Filtered Sponsor Segments",
         },
         "zh-TW": {
             "caption": "原始說明",
@@ -1033,6 +1046,7 @@ def locale_pack() -> dict[str, str]:
             "combined_ocr": "合併文字筆記",
             "image": "圖片",
             "no_image_text": "_圖片中未偵測到文字。_",
+            "filtered_sponsor_segments": "已過濾的業配段落",
         },
         "zh-CN": {
             "caption": "原始说明",
@@ -1042,6 +1056,7 @@ def locale_pack() -> dict[str, str]:
             "combined_ocr": "合并文字笔记",
             "image": "图片",
             "no_image_text": "_图片中未检测到文字。_",
+            "filtered_sponsor_segments": "已过滤的赞助段落",
         },
         "ja": {
             "caption": "元の説明",
@@ -1051,9 +1066,127 @@ def locale_pack() -> dict[str, str]:
             "combined_ocr": "OCR統合メモ",
             "image": "画像",
             "no_image_text": "_画像内にテキストは検出されませんでした。_",
+            "filtered_sponsor_segments": "フィルタ済みスポンサー区間",
         },
     }
     return packs.get(locale, packs["en"])
+
+
+_YOUTUBE_SPONSOR_STRONG_PATTERNS = (
+    r"\bthis (video|episode|stream) is sponsored by\b",
+    r"\bthanks to .{0,80}\bfor sponsoring (this (video|episode|stream)|today(?:'s)? (video|episode|stream))\b",
+    r"\bbrought to you by\b",
+    r"\bpaid promotion\b",
+    r"\bour sponsor(?:s|ed)?\b",
+    r"\baffiliate link(?:s)?\b",
+    r"\bpromo code\b",
+    r"\bdiscount code\b",
+    r"\buse code\s+[A-Za-z0-9_-]{3,}\b",
+)
+
+_YOUTUBE_SPONSOR_WEAK_PATTERNS = (
+    r"\bcheck out\b",
+    r"\blink in (the )?description\b",
+    r"\bfree trial\b",
+    r"\bsign up\b",
+    r"\bjoin today\b",
+    r"\bpartner(?:ed)? with\b",
+)
+
+
+def youtube_sponsor_filter_mode() -> str:
+    youtube = load_config().get("providers", {}).get("youtube", {})
+    value = str(youtube.get("sponsor_filter", "conservative") or "conservative").strip().lower()
+    return value if value in {"off", "conservative", "aggressive"} else "conservative"
+
+
+def _split_youtube_transcript_blocks(text: str) -> list[str]:
+    chunk_heading = re.compile(r"^### \d{2}:\d{2}:\d{2}[–-]\d{2}:\d{2}:\d{2}\s*$", re.M)
+    if chunk_heading.search(text):
+        blocks: list[str] = []
+        current: list[str] = []
+        for line in text.splitlines():
+            if chunk_heading.match(line.strip()):
+                if current:
+                    blocks.append("\n".join(current).strip())
+                    current = []
+            current.append(line)
+        if current:
+            blocks.append("\n".join(current).strip())
+        return [block for block in blocks if block.strip()]
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
+    if len(paragraphs) > 1:
+        return paragraphs
+    return [line.strip() for line in text.splitlines() if line.strip()]
+
+
+def _is_probable_youtube_sponsor_block(block: str) -> bool:
+    return _is_probable_youtube_sponsor_block_for_mode(block, "conservative")
+
+
+def _is_probable_youtube_sponsor_block_for_mode(block: str, mode: str) -> bool:
+    lower = block.lower()
+    strong_hits = sum(1 for pattern in _YOUTUBE_SPONSOR_STRONG_PATTERNS if re.search(pattern, lower, re.I))
+    weak_hits = sum(1 for pattern in _YOUTUBE_SPONSOR_WEAK_PATTERNS if re.search(pattern, lower, re.I))
+    if strong_hits == 0 and weak_hits == 0:
+        return False
+    if len(block) > 1600:
+        return False
+    if lower.count("http") >= 2 or ("link" in lower and "description" in lower):
+        return True
+    if any(token in lower for token in ("promo code", "discount code", "affiliate link", "use code ")):
+        return True
+    if strong_hits >= 2:
+        return True
+    if mode == "aggressive":
+        if strong_hits >= 1 and weak_hits >= 1:
+            return True
+        if weak_hits >= 2 and any(token in lower for token in ("description", "trial", "sign up", "partner")):
+            return True
+    return bool(re.search(r"\bsponsored by\b", lower, re.I))
+
+
+def filter_youtube_sponsor_segments(text: str, *, mode: str = "conservative") -> dict[str, Any]:
+    resolved_mode = mode if mode in {"off", "conservative", "aggressive"} else "conservative"
+    if resolved_mode == "off":
+        return {
+            "text": text,
+            "filtered": False,
+            "mode": "off",
+            "removed_segments": [],
+            "removed_count": 0,
+            "reason": "disabled",
+        }
+    blocks = _split_youtube_transcript_blocks(text)
+    removed: list[str] = []
+    kept: list[str] = []
+    for block in blocks:
+        if _is_probable_youtube_sponsor_block_for_mode(block, resolved_mode):
+            removed.append(block)
+        else:
+            kept.append(block)
+    filtered_text = "\n\n".join(kept).strip()
+    if removed and not filtered_text:
+        return {
+            "text": text,
+            "filtered": False,
+            "mode": resolved_mode,
+            "removed_segments": [],
+            "removed_count": 0,
+            "reason": "no_safe_non_sponsor_content_remaining",
+        }
+    return {
+        "text": filtered_text or text,
+        "filtered": bool(removed),
+        "mode": resolved_mode,
+        "removed_segments": removed,
+        "removed_count": len(removed),
+        "reason": (
+            f"youtube_sponsor_filter_{resolved_mode}"
+            if removed
+            else "no_sponsor_segments_detected"
+        ),
+    }
 
 
 def sha256(path: Path) -> str:
@@ -1116,12 +1249,18 @@ def render_standard_markdown(
     chunk_count: int,
     chunk_seconds_used: int | None,
     resumed_from_checkpoint: bool,
+    caption_probe_result: str | None,
+    transcript_filter_reason: str | None,
+    sponsor_filter_applied: bool,
+    sponsor_filter_mode: str | None,
+    sponsor_segments_filtered: int,
+    sponsor_segments_removed: list[str],
     title: str,
     description: str,
     text: str,
 ) -> str:
     pack = locale_pack()
-    return "\n".join([
+    lines = [
         "---",
         f"platform: {provider}",
         f"creator: {json.dumps(creator, ensure_ascii=False)}",
@@ -1134,6 +1273,7 @@ def render_standard_markdown(
         f"processed_at: {json.dumps(iso_now())}",
         f"transcription_source: {json.dumps(transcription_source)}",
         f"caption_language: {json.dumps(caption_language)}",
+        f"caption_probe_result: {json.dumps(caption_probe_result)}",
         f"transcription_model: {json.dumps(transcription_model)}",
         f"duration_seconds: {json.dumps(processed_duration)}",
         f"audio_download_strategy: {json.dumps(audio_download_strategy)}",
@@ -1142,11 +1282,28 @@ def render_standard_markdown(
         f"chunk_count: {json.dumps(chunk_count)}",
         f"chunk_seconds: {json.dumps(chunk_seconds_used)}",
         f"resumed_from_checkpoint: {json.dumps(resumed_from_checkpoint)}",
+        f"transcript_filter_reason: {json.dumps(transcript_filter_reason)}",
+        f"sponsor_filter_applied: {json.dumps(sponsor_filter_applied)}",
+        f"sponsor_filter_mode: {json.dumps(sponsor_filter_mode)}",
+        f"sponsor_segments_filtered: {json.dumps(sponsor_segments_filtered)}",
         "---", "",
         f"# {pack['title']}: {title or external_id}", "",
         f"## {pack['caption']}", "", description or "_No description provided._", "",
         f"## {pack['transcript']}", "", text or "_No speech detected._", "",
-    ])
+    ]
+    if sponsor_segments_removed:
+        lines.extend([
+            f"## {pack['filtered_sponsor_segments']}",
+            "",
+        ])
+        for index, segment in enumerate(sponsor_segments_removed, start=1):
+            lines.extend([
+                f"### {index}",
+                "",
+                segment,
+                "",
+            ])
+    return "\n".join(lines)
 
 
 def render_instagram_post_markdown(
@@ -1243,6 +1400,192 @@ def summarize_instagram_assets(metadata: dict[str, Any]) -> dict[str, Any]:
         "video_count": len(video_assets),
         "asset_kinds": [str(item.get("kind") or "unknown") for item in assets],
     }
+
+
+def _require_bilibili_api() -> tuple[Any, Any]:
+    try:
+        from bilibili_api.video import Video, VideoDownloadURLDataDetecter
+    except ImportError as exc:
+        guidance = provider_access_guidance("bilibili", error_code="missing_dependency", required_action="install_provider_extra")
+        root_cause = guidance[0] if guidance else 'Run: python -m pip install -U "media2md[bilibili]"'
+        raise StageError(
+            "inspect",
+            "Bilibili support is not installed.",
+            retryable=False,
+            error_code="missing_dependency",
+            action_required=True,
+            required_action="install_provider_extra",
+            root_cause=root_cause,
+        ) from exc
+    return Video, VideoDownloadURLDataDetecter
+
+
+def _bilibili_run(coro: Any) -> Any:
+    return asyncio.run(coro)
+
+
+def _bilibili_cid_from_info(info: dict[str, Any]) -> int:
+    pages = info.get("pages") or []
+    if not isinstance(pages, list) or not pages:
+        raise RuntimeError("Bilibili metadata did not include any playable pages.")
+    first = pages[0] if isinstance(pages[0], dict) else {}
+    cid = first.get("cid")
+    if not isinstance(cid, int) or cid <= 0:
+        raise RuntimeError("Bilibili metadata did not include a valid cid.")
+    return cid
+
+
+def _bilibili_published_iso(info: dict[str, Any]) -> str | None:
+    for key in ("pubdate", "ctime"):
+        raw = info.get(key)
+        try:
+            stamp = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if stamp > 0:
+            return datetime.fromtimestamp(stamp, tz=timezone.utc).isoformat(timespec="seconds")
+    return None
+
+
+def inspect_bilibili_metadata(canonical_source: str, external_id: str) -> dict[str, Any]:
+    del canonical_source
+    Video, _ = _require_bilibili_api()
+    video = Video(bvid=external_id)
+    info = _bilibili_run(video.get_info())
+    cid = _bilibili_cid_from_info(info)
+    subtitles: list[Any] = []
+    try:
+        player = _bilibili_run(video.get_player_info(cid=cid))
+    except Exception as exc:
+        message = str(exc).lower()
+        if "sessdata" not in message and "credential" not in message:
+            raise
+    else:
+        subtitles = ((player.get("subtitle") or {}).get("subtitles") or []) if isinstance(player, dict) else []
+    owner = info.get("owner") or {}
+    uploader = str(owner.get("name") or external_id)
+    uploader_id = str(owner.get("mid") or "")
+    return {
+        "id": external_id,
+        "title": str(info.get("title") or external_id),
+        "description": str(info.get("desc") or ""),
+        "uploader": uploader,
+        "channel": uploader,
+        "channel_id": uploader_id,
+        "upload_date": "",
+        "duration": info.get("duration"),
+        "webpage_url": f"https://www.bilibili.com/video/{external_id}",
+        "_media2md_metadata_source": "bilibili-api",
+        "_media2md_bilibili_cid": cid,
+        "_media2md_bilibili_has_subtitles": bool(subtitles),
+        "_media2md_bilibili_published_at": _bilibili_published_iso(info),
+    }
+
+
+def _fetch_json_url(url: str) -> dict[str, Any]:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Referer": "https://www.bilibili.com/",
+            "Accept": "application/json",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:
+        return json.loads(response.read(2_000_000).decode("utf-8", "replace"))
+
+
+def _bilibili_caption_text_from_body(body: Any) -> str:
+    if not isinstance(body, list):
+        return ""
+    lines: list[str] = []
+    for item in body:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("content") or "").strip()
+        if text and (not lines or lines[-1] != text):
+            lines.append(text)
+    return "\n".join(lines).strip()
+
+
+def try_bilibili_captions(source_url: str, external_id: str) -> tuple[str | None, str | None]:
+    del source_url
+    Video, _ = _require_bilibili_api()
+    video = Video(bvid=external_id)
+    info = _bilibili_run(video.get_info())
+    cid = _bilibili_cid_from_info(info)
+    try:
+        player = _bilibili_run(video.get_player_info(cid=cid))
+    except Exception as exc:
+        # Public Bilibili metadata often works without session state while
+        # subtitle/player endpoints may require SESSDATA. Treat that as a clean
+        # miss so the public-first pipeline can continue into audio fallback.
+        message = str(exc).lower()
+        if "sessdata" in message or "credential" in message:
+            return None, None
+        raise
+    subtitles = ((player.get("subtitle") or {}).get("subtitles") or []) if isinstance(player, dict) else []
+    for item in subtitles:
+        if not isinstance(item, dict):
+            continue
+        subtitle_url = str(item.get("subtitle_url") or "").strip()
+        if not subtitle_url:
+            continue
+        if subtitle_url.startswith("//"):
+            subtitle_url = "https:" + subtitle_url
+        elif subtitle_url.startswith("/"):
+            subtitle_url = "https://www.bilibili.com" + subtitle_url
+        payload = _fetch_json_url(subtitle_url)
+        text = _bilibili_caption_text_from_body(payload.get("body"))
+        if text:
+            language = str(item.get("lan") or item.get("lan_doc") or "").strip() or None
+            return text, language
+    return None, None
+
+
+def download_bilibili_audio(source_url: str, work: Path, external_id: str) -> tuple[Path, str, bool, list[dict[str, Any]]]:
+    del source_url
+    Video, VideoDownloadURLDataDetecter = _require_bilibili_api()
+    video = Video(bvid=external_id)
+    info = _bilibili_run(video.get_info())
+    cid = _bilibili_cid_from_info(info)
+    download_data = _bilibili_run(video.get_download_url(cid=cid, html5=False))
+    detector = VideoDownloadURLDataDetecter(download_data)
+    streams = detector.detect_best_streams()
+    audio_stream_url = None
+    for stream in streams:
+        if hasattr(stream, "audio_quality") and getattr(stream, "url", None):
+            audio_stream_url = str(stream.url)
+            break
+    if not audio_stream_url:
+        raise RuntimeError("Bilibili did not return an audio stream URL.")
+    target = work / f"{safe_artifact_stem('bilibili', external_id)}.m4a"
+    request = urllib.request.Request(
+        audio_stream_url,
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Referer": f"https://www.bilibili.com/video/{external_id}",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=300) as response, target.open("wb") as handle:
+        while True:
+            chunk = response.read(1024 * 1024)
+            if not chunk:
+                break
+            handle.write(chunk)
+    if not target.is_file() or target.stat().st_size <= 0:
+        raise RuntimeError("Bilibili audio download completed but no audio file was created.")
+    _write_audio_manifest(
+        work, target, source_url=f"https://www.bilibili.com/video/{external_id}", external_id=external_id,
+        strategy="bilibili-api-audio-stream", uses_auth=False,
+    )
+    return target, "bilibili-api-audio-stream", False, [{
+        "strategy": "bilibili-api-audio-stream",
+        "client": "bilibili-api",
+        "uses_auth": False,
+        "ok": True,
+        "error": None,
+    }]
 
 
 
@@ -1706,6 +2049,11 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
     chunk_seconds_used: int | None = None
     processed_duration = float(row["duration_seconds"] or 0)
     resumed_from_checkpoint = False
+    caption_probe_result: str | None = "not_applicable"
+    transcript_filter_reason: str | None = "not_applicable"
+    sponsor_filter_applied = False
+    sponsor_filter_mode: str | None = None
+    sponsor_segments_removed: list[str] = []
     succeeded = False
     no_audio_stream = False
     result_summary: dict[str, Any] = {}
@@ -1715,11 +2063,25 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
         if provider == "youtube":
             text, caption_language = try_youtube_captions(canonical_source, work, external_id, ytdlp_args)
             if text:
+                caption_probe_result = "hit"
                 transcription_source = "youtube_captions"
                 transcription_model = None
                 chunk_count = 0
                 conn.execute("UPDATE media SET status='transcribing', updated_at=? WHERE id=?", (iso_now(), row["id"]))
                 conn.commit()
+            else:
+                caption_probe_result = "disabled" if not youtube_caption_settings()[0] else "miss"
+        elif provider == "bilibili":
+            text, caption_language = try_bilibili_captions(canonical_source, external_id)
+            if text:
+                caption_probe_result = "hit"
+                transcription_source = "bilibili_captions"
+                transcription_model = None
+                chunk_count = 0
+                conn.execute("UPDATE media SET status='transcribing', updated_at=? WHERE id=?", (iso_now(), row["id"]))
+                conn.commit()
+            else:
+                caption_probe_result = "miss"
 
         if post_ocr_mode:
             text = ""
@@ -1740,7 +2102,14 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
                     "uses_auth": audio_used_auth, "ok": True, "error": None,
                 })
             elif provider == "youtube":
+                if caption_probe_result != "disabled":
+                    caption_probe_result = "fallback_to_audio"
                 media, audio_download_strategy, audio_used_auth, audio_attempts = download_youtube_audio(
+                    canonical_source, work, external_id
+                )
+            elif provider == "bilibili":
+                caption_probe_result = "fallback_to_audio"
+                media, audio_download_strategy, audio_used_auth, audio_attempts = download_bilibili_audio(
                     canonical_source, work, external_id
                 )
             else:
@@ -1829,6 +2198,13 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
                         root_cause=str(classification.get("root_cause") or str(exc)),
                         log_path=classification.get("log_path"),
                     ) from exc
+        if provider == "youtube" and text:
+            sponsor_filter = filter_youtube_sponsor_segments(str(text), mode=youtube_sponsor_filter_mode())
+            text = str(sponsor_filter["text"])
+            sponsor_filter_applied = bool(sponsor_filter["filtered"])
+            sponsor_filter_mode = str(sponsor_filter["mode"])
+            sponsor_segments_removed = list(sponsor_filter["removed_segments"])
+            transcript_filter_reason = str(sponsor_filter["reason"])
 
         item_class = processing_class(media_type, processed_duration, long_threshold_seconds=threshold)
         try:
@@ -1876,6 +2252,12 @@ def process_row(conn: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
                     chunk_count=chunk_count,
                     chunk_seconds_used=chunk_seconds_used,
                     resumed_from_checkpoint=resumed_from_checkpoint,
+                    caption_probe_result=caption_probe_result,
+                    transcript_filter_reason=transcript_filter_reason,
+                    sponsor_filter_applied=sponsor_filter_applied,
+                    sponsor_filter_mode=sponsor_filter_mode,
+                    sponsor_segments_filtered=len(sponsor_segments_removed),
+                    sponsor_segments_removed=sponsor_segments_removed,
                     title=str(row["title"] or external_id),
                     description=str(row["description"] or ""),
                     text=str(text or ""),
@@ -2126,21 +2508,21 @@ def main() -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     inspect_cmd = sub.add_parser("inspect")
     inspect_cmd.add_argument("url")
-    inspect_cmd.add_argument("--provider", choices=("instagram","youtube","tiktok"))
+    inspect_cmd.add_argument("--provider", choices=("instagram","youtube","tiktok","bilibili"))
     inspect_cmd.add_argument("--creator")
     inspect_cmd.add_argument("--output", choices=("human","ndjson"), default="human")
     add_cmd = sub.add_parser("add")
     add_cmd.add_argument("url")
-    add_cmd.add_argument("--provider", choices=("instagram","youtube","tiktok"))
+    add_cmd.add_argument("--provider", choices=("instagram","youtube","tiktok","bilibili"))
     add_cmd.add_argument("--creator")
     add_cmd.add_argument("--process-now", action="store_true")
     add_cmd.add_argument("--output", choices=("human","ndjson"), default="human")
     registered_cmd = sub.add_parser("process-registered")
-    registered_cmd.add_argument("provider", choices=("youtube","tiktok"))
+    registered_cmd.add_argument("provider", choices=("youtube","tiktok","bilibili"))
     registered_cmd.add_argument("external_id")
     registered_cmd.add_argument("--output", choices=("human","ndjson"), default="human")
     list_cmd = sub.add_parser("list")
-    list_cmd.add_argument("--provider", choices=("youtube","tiktok"))
+    list_cmd.add_argument("--provider", choices=("youtube","tiktok","bilibili"))
     list_cmd.add_argument("--status")
     list_cmd.add_argument("--output", choices=("human","ndjson"), default="human")
     args = parser.parse_args(argv)
