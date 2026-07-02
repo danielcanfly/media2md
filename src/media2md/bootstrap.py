@@ -3,7 +3,7 @@ import json, os, shutil, stat, sys, time
 from contextlib import contextmanager
 from importlib import resources
 from pathlib import Path
-VERSION='0.9.5'
+VERSION='0.9.6'
 STATE_DIRS=('config','data','logs','workspace','markdown','downloads','transcripts')
 LOCK_TIMEOUT_SECONDS=30.0
 LOCK_STALE_SECONDS=300.0

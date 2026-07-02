@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.6 - 2026-07-02
+
+- Polish the public README so the GitHub and PyPI landing experience is shorter, clearer, and more focused on the core install and first-run path.
+- Add a dedicated agent install guide that an operator can hand directly to an agent for installation, initialization, auth verification, and readiness checks.
+- Keep the package surface aligned with the current multi-provider scope, including Instagram, YouTube, TikTok, and Bilibili.
+
 ## 0.9.5 - 2026-07-01
 
 - Add Instagram post and carousel OCR processing to the public package flow, using gallery-dl asset inspection plus local OCR output grouped by image into one Markdown artifact.

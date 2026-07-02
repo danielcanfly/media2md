@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "0.9.5"
+VERSION = "0.9.6"
 SCRIPT_PAYLOADS = [
     "install_media2md_v067.py",
     "media2md_cli_v067.py",
