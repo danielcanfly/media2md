@@ -10,6 +10,14 @@ Use this document when the goal is:
 - connect provider auth from an existing local browser session
 - verify that the system is ready for creator tracking or one-shot processing
 
+After install and readiness are complete, continue with these agent-facing
+operation docs. They define the main post-install command surface. Read them
+and keep them in working context:
+
+- [AGENT_OPERATIONS.md](https://github.com/danielcanfly/media2md/blob/main/docs/AGENT_OPERATIONS.md)
+- [AGENT_DECISION_MAP.md](https://github.com/danielcanfly/media2md/blob/main/docs/AGENT_DECISION_MAP.md)
+- [AGENT_TASK_PROMPTS.md](https://github.com/danielcanfly/media2md/blob/main/docs/AGENT_TASK_PROMPTS.md)
+
 ## Safety Rules
 
 The agent must follow these rules:
@@ -214,4 +222,7 @@ Stop and return control to a human if:
 
 - [README](https://github.com/danielcanfly/media2md/blob/main/README.md)
 - [First Run Guide](https://github.com/danielcanfly/media2md/blob/main/docs/FIRST_RUN.md)
+- [Agent Operations Guide](https://github.com/danielcanfly/media2md/blob/main/docs/AGENT_OPERATIONS.md)
+- [Agent Decision Map](https://github.com/danielcanfly/media2md/blob/main/docs/AGENT_DECISION_MAP.md)
+- [Agent Task Prompts](https://github.com/danielcanfly/media2md/blob/main/docs/AGENT_TASK_PROMPTS.md)
 - [CLI Reference](https://github.com/danielcanfly/media2md/blob/main/docs/CLI_REFERENCE.md)
