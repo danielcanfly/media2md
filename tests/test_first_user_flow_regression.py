@@ -688,4 +688,4 @@ def test_first_user_uninstall_executes_package_removal_when_not_dry_run(monkeypa
     assert result == 0
     assert "package_uninstalled=true" in out
     assert calls
-    assert calls[0][-2:] == ["media2md", "social2md"]
+    assert calls[0][-1:] == ["media2md"]

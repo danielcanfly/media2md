@@ -1026,6 +1026,9 @@ def uninstall(args: argparse.Namespace) -> int:
         )
     if args.purge_data:
         data_delete_all(argparse.Namespace(yes=args.yes, confirm=args.confirm))
+    installed_uninstall_targets_service = optional_attr("public_cli_tail_service", "installed_uninstall_targets")
+    package_targets = installed_uninstall_targets_service() if installed_uninstall_targets_service is not None else ["media2md", "social2md"]
+    package_command = "python -m pip uninstall -y " + " ".join(package_targets)
     _, removed_jobs = remove_openclaw_cron()
     removed_skills = []
     for name in ("media2md", "social2md"):
@@ -1039,13 +1042,13 @@ def uninstall(args: argparse.Namespace) -> int:
     print(f"openclaw_cron_removed={len(removed_jobs)}")
     print(f"openclaw_skills_removed={','.join(removed_skills) or '-'}")
     print(f"data_purged={str(args.purge_data).lower()}")
-    print("package_command=python -m pip uninstall -y media2md social2md")
+    print(f"package_command={package_command}")
     if getattr(args, "dry_run", False):
         print("package_uninstalled=false")
         print("next_step=run `media2md uninstall` to remove the installed Python package")
         return 0
     print("package_uninstalled=true")
-    return run([sys.executable, "-m", "pip", "uninstall", "-y", "media2md", "social2md"])
+    return run([sys.executable, "-m", "pip", "uninstall", "-y", *package_targets])
 
 
 

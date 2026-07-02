@@ -145,13 +145,15 @@ def test_uninstall_runs_pip_by_default(monkeypatch,tmp_path,capsys):
  from media2md.bundle.scripts import media2md as public_cli
  calls=[]
  monkeypatch.setattr(public_cli, 'remove_openclaw_cron', lambda: (0, []))
+ monkeypatch.setattr(public_cli, 'optional_attr', lambda module_name, attr_name: (lambda: ['media2md']) if attr_name=='installed_uninstall_targets' else None)
  monkeypatch.setattr(public_cli, 'run', lambda cmd, check=False: calls.append(cmd) or 0)
  args=type('Args',(),{'purge_data':False,'yes':False,'confirm':None,'dry_run':False})()
  assert public_cli.uninstall(args)==0
  out=capsys.readouterr().out
  assert 'MEDIA2MD_UNINSTALL_PREPARED' in out
  assert 'package_uninstalled=true' in out
- assert calls and calls[0][-2:]==['media2md','social2md']
+ assert 'package_command=python -m pip uninstall -y media2md' in out
+ assert calls and calls[0][-1:]==['media2md']
 
 def test_uninstall_dry_run_does_not_remove_package(monkeypatch,tmp_path,capsys):
  monkeypatch.setenv('HOME',str(tmp_path))

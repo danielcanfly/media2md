@@ -35,9 +35,20 @@ def test_instagram_server_authenticated(tmp_path, monkeypatch):
     monkeypatch.setattr(auth,'load',lambda: json.loads(json.dumps(state)))
     monkeypatch.setattr(auth,'save',lambda payload: None)
     monkeypatch.setattr(auth,'_probe',lambda provider,jar:('authenticated',200,'https://www.instagram.com/accounts/edit/',None))
+    monkeypatch.setattr(auth,'_resolve_instagram_identity',lambda jar:{
+        'resolved_account_id':'123',
+        'resolved_account_username':'account_a',
+        'resolved_account_display_name':'Account A',
+        'account_identity_source':'live_probe:/api/v1/accounts/current_user/',
+        'account_identity_warning':None,
+    })
     payload=auth.verify_web('instagram',persist=False)
     assert payload['authenticated'] is True
     assert payload['auth_state']=='authenticated'
+    assert payload['resolved_account_id']=='123'
+    assert payload['resolved_account_username']=='account_a'
+    assert payload['selected_account_username']=='account_a'
+    assert payload['account_match'] is True
 
 
 def test_instagram_transient_probe_ssl_error_stays_configured_not_reconnect(tmp_path, monkeypatch):
@@ -56,6 +67,49 @@ def test_instagram_transient_probe_ssl_error_stays_configured_not_reconnect(tmp_
     assert payload['required_action'] is None
     assert payload['retryable'] is True
     assert 'transient transport error' in payload['warning']
+
+
+def test_instagram_verify_persists_selected_identity_and_reports_future_mismatch(tmp_path, monkeypatch):
+    import media2md_auth as auth
+    jar=http.cookiejar.MozillaCookieJar(str(tmp_path/'instagram-cookies.txt'))
+    jar.set_cookie(_cookie('sessionid','x',2147483647))
+    jar.set_cookie(_cookie('ds_user_id','111',2147483647))
+    jar.save(ignore_discard=True,ignore_expires=True)
+    saved=[]
+    state={'schema_version':5,'providers':{'instagram':{'mode':'browser_cookie','cookie_file':str(tmp_path/'instagram-cookies.txt')}}}
+    monkeypatch.setattr(auth,'load',lambda: json.loads(json.dumps(state)))
+    monkeypatch.setattr(auth,'save',lambda payload: saved.append(payload))
+    monkeypatch.setattr(auth,'_probe',lambda provider,jar:('authenticated',200,'https://www.instagram.com/accounts/edit/',None))
+    monkeypatch.setattr(auth,'_resolve_instagram_identity',lambda jar:{
+        'resolved_account_id':'111',
+        'resolved_account_username':'account_a',
+        'resolved_account_display_name':'Account A',
+        'account_identity_source':'live_probe:/api/v1/accounts/current_user/',
+        'account_identity_warning':None,
+    })
+    first=auth.verify_web('instagram',persist=True)
+    assert first['selected_account_username']=='account_a'
+    assert first['account_match'] is True
+    persisted=saved[-1]['providers']['instagram']
+    assert persisted['selected_account_id']=='111'
+    assert persisted['selected_account_username']=='account_a'
+
+    mismatch_state={'schema_version':5,'providers':{'instagram':persisted}}
+    monkeypatch.setattr(auth,'load',lambda: json.loads(json.dumps(mismatch_state)))
+    monkeypatch.setattr(auth,'save',lambda payload: None)
+    monkeypatch.setattr(auth,'_resolve_instagram_identity',lambda jar:{
+        'resolved_account_id':'222',
+        'resolved_account_username':'account_b',
+        'resolved_account_display_name':'Account B',
+        'account_identity_source':'live_probe:/api/v1/accounts/current_user/',
+        'account_identity_warning':None,
+    })
+    second=auth.verify_web('instagram',persist=False)
+    assert second['selected_account_username']=='account_a'
+    assert second['resolved_account_username']=='account_b'
+    assert second['account_match'] is False
+    assert 'account_a' in second['account_mismatch_warning']
+    assert 'account_b' in second['account_mismatch_warning']
 
 
 def test_safe_extract_rejects_traversal(tmp_path):

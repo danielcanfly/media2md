@@ -124,6 +124,111 @@ def _probe(provider,jar):
   return 'probe_error',exc.code,getattr(exc,'url',None),str(exc)
  except Exception as exc: return 'probe_error',None,None,str(exc)
 
+def _active_cookie_value(jar,name):
+ now=datetime.now(timezone.utc).timestamp()
+ for cookie in jar:
+  if cookie.name==name and not cookie.is_expired(now): return cookie.value
+ return None
+
+def _instagram_identity_probe(jar):
+ opener=urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+ headers={
+  'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124 Safari/537.36',
+  'Accept':'application/json',
+  'X-Requested-With':'XMLHttpRequest',
+ }
+ last_error=None
+ for url in (
+  'https://www.instagram.com/api/v1/accounts/current_user/?edit=true',
+  'https://i.instagram.com/api/v1/accounts/current_user/?edit=true',
+ ):
+  try:
+   with opener.open(urllib.request.Request(url,headers=headers),timeout=20) as resp:
+    final=resp.geturl(); body=resp.read(500000).decode('utf-8','ignore')
+  except urllib.error.HTTPError as exc:
+   last_error=f'HTTP {exc.code} from {urllib.parse.urlparse(url).path}'
+   continue
+  except Exception as exc:
+   last_error=str(exc)
+   continue
+  try:
+   data=json.loads(body)
+  except json.JSONDecodeError:
+   last_error=f'Non-JSON response from {urllib.parse.urlparse(final).path}'
+   continue
+  user=data.get('user') if isinstance(data,dict) else None
+  if isinstance(user,dict):
+   account_id=str(user.get('pk') or user.get('id') or '').strip() or None
+   username=str(user.get('username') or '').strip() or None
+   display_name=str(user.get('full_name') or '').strip() or None
+   if account_id or username or display_name:
+    return {
+     'resolved_account_id':account_id,
+     'resolved_account_username':username,
+     'resolved_account_display_name':display_name,
+     'account_identity_source':f'live_probe:{urllib.parse.urlparse(final).path or urllib.parse.urlparse(url).path}',
+    }
+  last_error=f'No account identity fields returned from {urllib.parse.urlparse(final).path}'
+ return {'account_identity_error':last_error}
+
+def _resolve_instagram_identity(jar):
+ cookie_account_id=_active_cookie_value(jar,'ds_user_id')
+ identity={
+  'resolved_account_id':cookie_account_id or None,
+  'resolved_account_username':None,
+  'resolved_account_display_name':None,
+  'account_identity_source':'cookie:ds_user_id' if cookie_account_id else None,
+  'account_identity_warning':None,
+ }
+ live=_instagram_identity_probe(jar)
+ if live.get('resolved_account_id') or live.get('resolved_account_username') or live.get('resolved_account_display_name'):
+  if cookie_account_id and live.get('resolved_account_id') and str(cookie_account_id)!=str(live['resolved_account_id']):
+   identity['account_identity_warning']='Instagram cookie user id and live identity probe disagree; Media2MD is reporting the live resolved account.'
+  identity.update(live)
+  return identity
+ if cookie_account_id:
+  identity['account_identity_warning']='Resolved Instagram account id from cookies only; live username probe was unavailable.'
+  return identity
+ if live.get('account_identity_error'):
+  identity['account_identity_warning']='Unable to resolve Instagram account identity from the current session.'
+ return identity
+
+def _apply_instagram_account_tracking(profile,payload):
+ resolved_id=payload.get('resolved_account_id')
+ resolved_username=payload.get('resolved_account_username')
+ resolved_display_name=payload.get('resolved_account_display_name')
+ selected_id=profile.get('selected_account_id')
+ selected_username=profile.get('selected_account_username')
+ selected_display_name=profile.get('selected_account_display_name')
+ if (resolved_id or resolved_username) and not (selected_id or selected_username):
+  profile['selected_account_id']=resolved_id
+  profile['selected_account_username']=resolved_username
+  profile['selected_account_display_name']=resolved_display_name
+  profile['selected_account_source']='implicit_first_verified_identity'
+  selected_id=resolved_id
+  selected_username=resolved_username
+  selected_display_name=resolved_display_name
+ payload['selected_account_id']=selected_id
+ payload['selected_account_username']=selected_username
+ payload['selected_account_display_name']=selected_display_name
+ profile['last_resolved_account_id']=resolved_id
+ profile['last_resolved_account_username']=resolved_username
+ profile['last_resolved_account_display_name']=resolved_display_name
+ match=None
+ if (selected_id or selected_username) and (resolved_id or resolved_username):
+  if selected_id and resolved_id:
+   match=str(selected_id)==str(resolved_id)
+  elif selected_username and resolved_username:
+   match=str(selected_username).casefold()==str(resolved_username).casefold()
+ if match is not None:
+  payload['account_match']=match
+  profile['last_account_match']=match
+  if match is False:
+   selected_label=selected_username or selected_id
+   resolved_label=resolved_username or resolved_id
+   payload['account_mismatch_warning']=f'Selected Instagram account {selected_label} does not match the current live session {resolved_label}.'
+ return profile,payload
+
 def verify_web(provider,persist=True):
  data=load(); p=data['providers'].get(provider,{})
  payload=make_event_payload(event='auth_verify',schema='media2md.cli.auth_verify/v1',data={'provider':provider,'browser_launch_allowed':False,'browser':p.get('browser'),'profile':p.get('profile'),'profile_configured':bool(p.get('mode')=='browser_profile' and p.get('browser') and p.get('profile')),'cookie_extraction_ready':False,'authenticated':False,'auth_state':'unconfigured','required_action':None,'guidance':[],'error':None})
@@ -147,15 +252,21 @@ def verify_web(provider,persist=True):
     auth_state='configured_unverified',
     required_action=None,
     retryable=True,
-    warning='Browser auth cookies are present, but the live server probe failed with a transient transport error.',
+   warning='Browser auth cookies are present, but the live server probe failed with a transient transport error.',
     guidance=[f'Retry: {auth_verify_command(provider)}',f'If normal commands work, treat this as a probe-only failure and continue.'],
    )
   else: payload.update(auth_state='configured_unverified',required_action=f'inspect_{provider}_access_error')
+  if provider=='instagram' and payload.get('auth_cookie_present'):
+   payload.update(_resolve_instagram_identity(jar))
+   p,payload=_apply_instagram_account_tracking(dict(p),payload)
  except Exception as exc:
   text=str(exc); lower=text.lower(); state='cookie_store_locked' if any(x in lower for x in ('locked','database is locked','permission')) else 'dependency_missing' if 'browser-cookie3' in lower else 'cookie_extraction_failed'
   payload.update(auth_state=state,error=text,required_action='close_browser_and_check_profile_cookie_access' if state=='cookie_store_locked' else 'install_auth_browser_dependencies' if state=='dependency_missing' else f'reconnect_{provider}_browser_profile')
  if persist:
-  data=load(); p=data['providers'].get(provider,p); p['last_verified_at']=iso_now(); p['last_auth_state']=payload['auth_state']; p['last_authenticated']=payload['authenticated']; p['last_verify_error']=payload.get('error'); data['providers'][provider]=p; save(data)
+  data=load(); current=data['providers'].get(provider,{})
+  if isinstance(current,dict) and isinstance(p,dict): current={**current,**p}
+  else: current=p
+  current['last_verified_at']=iso_now(); current['last_auth_state']=payload['auth_state']; current['last_authenticated']=payload['authenticated']; current['last_verify_error']=payload.get('error'); data['providers'][provider]=current; save(data)
  return payload
 
 def verify(provider,video_id,output):

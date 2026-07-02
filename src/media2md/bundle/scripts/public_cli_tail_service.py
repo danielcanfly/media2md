@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import json
 import shutil
 import sqlite3
@@ -19,6 +20,17 @@ try:
     from media2md.remediation_service import uninstall_dry_run_next_step
 except ModuleNotFoundError:
     from media2md_remediation_compat import uninstall_dry_run_next_step
+
+
+def installed_uninstall_targets() -> list[str]:
+    targets: list[str] = []
+    for name in ("media2md", "social2md"):
+        try:
+            importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            continue
+        targets.append(name)
+    return targets or ["media2md"]
 
 
 def scheduler_tick_common(
@@ -292,6 +304,8 @@ def uninstall_common(
     remove_openclaw_cron: Callable[[], tuple[int, list[str]]],
     run: Callable[[list[str], bool], int],
 ) -> int:
+    package_targets = installed_uninstall_targets()
+    package_command = "python -m pip uninstall -y " + " ".join(package_targets)
     if args.purge_data:
         data_delete_all(argparse.Namespace(yes=args.yes, confirm=args.confirm))
     _, removed_jobs = remove_openclaw_cron()
@@ -316,7 +330,7 @@ def uninstall_common(
                     "openclaw_cron_removed": len(removed_jobs),
                     "openclaw_skills_removed": removed_skills,
                     "data_purged": bool(args.purge_data),
-                    "package_command": "python -m pip uninstall -y media2md social2md",
+                    "package_command": package_command,
                     "package_uninstalled": False if getattr(args, "dry_run", False) else True,
                     "next_step": uninstall_dry_run_next_step() if getattr(args, "dry_run", False) else None,
                 },
@@ -326,7 +340,7 @@ def uninstall_common(
             "openclaw_cron_removed": len(removed_jobs),
             "openclaw_skills_removed": removed_skills,
             "data_purged": bool(args.purge_data),
-            "package_command": "python -m pip uninstall -y media2md social2md",
+            "package_command": package_command,
             "package_uninstalled": False if getattr(args, "dry_run", False) else True,
             "next_step": uninstall_dry_run_next_step() if getattr(args, "dry_run", False) else None,
         },
@@ -338,7 +352,7 @@ def uninstall_common(
         print(f"next_step={uninstall_dry_run_next_step()}")
         return 0
     print("package_uninstalled=true")
-    return run([sys.executable, "-m", "pip", "uninstall", "-y", "media2md", "social2md"])
+    return run([sys.executable, "-m", "pip", "uninstall", "-y", *package_targets])
 
 
 def build_scheduler_creator_run_namespace(

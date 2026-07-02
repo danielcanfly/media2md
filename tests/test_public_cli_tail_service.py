@@ -7,6 +7,7 @@ from pathlib import Path
 from media2md.bundle.scripts.public_cli_tail_service import (
     build_scheduler_creator_run_namespace,
     data_delete_all_common,
+    installed_uninstall_targets,
     scheduler_tick_common,
     uninstall_common,
     update_check_common,
@@ -75,6 +76,18 @@ def test_uninstall_common_dry_run_skips_pip(monkeypatch, capsys):
     assert '"schema": "media2md.cli.uninstall_prepared/v1"' in out
     assert '"package_uninstalled": false' in out
     assert calls == []
+
+
+def test_installed_uninstall_targets_omits_missing_legacy_package(monkeypatch):
+    import importlib.metadata
+
+    def fake_version(name: str) -> str:
+        if name == "media2md":
+            return "0.9.7"
+        raise importlib.metadata.PackageNotFoundError
+
+    monkeypatch.setattr(importlib.metadata, "version", fake_version)
+    assert installed_uninstall_targets() == ["media2md"]
 
 
 def test_data_delete_all_common_emits_shared_schema(tmp_path, capsys):
