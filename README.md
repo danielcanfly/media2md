@@ -121,6 +121,9 @@ media2md runtime path
 
 - Human setup: [First Run Guide](https://github.com/danielcanfly/media2md/blob/main/docs/FIRST_RUN.md)
 - Agent setup: [Agent Install Guide](https://github.com/danielcanfly/media2md/blob/main/docs/AGENT_INSTALL.md)
+- Agent operations: [AGENT_OPERATIONS.md](https://github.com/danielcanfly/media2md/blob/main/docs/AGENT_OPERATIONS.md)
+- Agent decision map: [AGENT_DECISION_MAP.md](https://github.com/danielcanfly/media2md/blob/main/docs/AGENT_DECISION_MAP.md)
+- Agent task prompts: [AGENT_TASK_PROMPTS.md](https://github.com/danielcanfly/media2md/blob/main/docs/AGENT_TASK_PROMPTS.md)
 - Full command reference: [CLI Reference](https://github.com/danielcanfly/media2md/blob/main/docs/CLI_REFERENCE.md)
 - Release process: [RELEASE_PROCESS.md](https://github.com/danielcanfly/media2md/blob/main/docs/RELEASE_PROCESS.md)
 
@@ -150,6 +153,9 @@ Media2MD does not type passwords, bypass 2FA, solve CAPTCHA, or defeat provider 
 - PyPI: [media2md](https://pypi.org/project/media2md/)
 - First Run Guide: [docs/FIRST_RUN.md](https://github.com/danielcanfly/media2md/blob/main/docs/FIRST_RUN.md)
 - Agent Install Guide: [docs/AGENT_INSTALL.md](https://github.com/danielcanfly/media2md/blob/main/docs/AGENT_INSTALL.md)
+- Agent Operations Guide: [docs/AGENT_OPERATIONS.md](https://github.com/danielcanfly/media2md/blob/main/docs/AGENT_OPERATIONS.md)
+- Agent Decision Map: [docs/AGENT_DECISION_MAP.md](https://github.com/danielcanfly/media2md/blob/main/docs/AGENT_DECISION_MAP.md)
+- Agent Task Prompts: [docs/AGENT_TASK_PROMPTS.md](https://github.com/danielcanfly/media2md/blob/main/docs/AGENT_TASK_PROMPTS.md)
 - CLI Reference: [docs/CLI_REFERENCE.md](https://github.com/danielcanfly/media2md/blob/main/docs/CLI_REFERENCE.md)
 - Release Process: [docs/RELEASE_PROCESS.md](https://github.com/danielcanfly/media2md/blob/main/docs/RELEASE_PROCESS.md)
 - Changelog: [CHANGELOG.md](https://github.com/danielcanfly/media2md/blob/main/CHANGELOG.md)
