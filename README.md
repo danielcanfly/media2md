@@ -71,13 +71,68 @@ Initialize the runtime:
 media2md init --language <language> --markdown-language <markdown-language> --timezone <timezone> --non-interactive
 ```
 
+Supported language values:
+
+```text
+en
+ja
+zh-TW
+zh-CN
+```
+
+Use IANA timezone names such as:
+
+```text
+Asia/Tokyo
+Asia/Taipei
+America/Los_Angeles
+Europe/London
+```
+
+Examples:
+
+```bash
+media2md init --language ja --markdown-language ja --timezone Asia/Tokyo --non-interactive
+media2md init --language zh-TW --markdown-language zh-TW --timezone Asia/Taipei --non-interactive
+media2md init --language en --markdown-language en --timezone America/Los_Angeles --non-interactive
+```
+
 Connect provider auth:
+
+YouTube:
 
 ```bash
 media2md auth profiles youtube --browser chrome
 media2md auth connect youtube --browser chrome --profile Default
 media2md auth verify youtube
 ```
+
+Instagram:
+
+```bash
+media2md auth profiles instagram --browser chrome
+media2md auth connect instagram --browser chrome --profile Default
+media2md auth verify instagram
+```
+
+TikTok:
+
+```bash
+media2md auth profiles tiktok --browser chrome
+media2md auth connect tiktok --browser chrome --profile Default
+media2md auth verify tiktok
+```
+
+Bilibili:
+
+```bash
+pip install "media2md[bilibili]"
+media2md status --output ndjson
+media2md doctor bilibili-access --video-id <BV_VIDEO_ID>
+```
+
+Bilibili does not currently use the same browser-profile auth flow as
+YouTube, Instagram, and TikTok.
 
 Track a creator and process content:
 
