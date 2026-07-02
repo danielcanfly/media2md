@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "media2md"
-version = "0.9.7"
+version = "0.9.8"
 description = "Local-first CLI for turning Instagram, YouTube, TikTok, and Bilibili content into structured Markdown."
 readme = "README.md"
 requires-python = ">=3.11"

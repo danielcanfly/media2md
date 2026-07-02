@@ -83,7 +83,7 @@ def test_installed_uninstall_targets_omits_missing_legacy_package(monkeypatch):
 
     def fake_version(name: str) -> str:
         if name == "media2md":
-            return "0.9.7"
+            return "0.9.8"
         raise importlib.metadata.PackageNotFoundError
 
     monkeypatch.setattr(importlib.metadata, "version", fake_version)
@@ -114,7 +114,7 @@ def test_update_check_common_ndjson_uses_emit(monkeypatch):
             return False
 
         def read(self):
-            return json.dumps({"tag_name": "v0.9.7", "html_url": "https://example.com/release"}).encode()
+            return json.dumps({"tag_name": "v0.9.8", "html_url": "https://example.com/release"}).encode()
 
     monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: _Response())
     args = argparse.Namespace(repository=None, output="ndjson")

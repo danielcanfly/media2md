@@ -22,7 +22,14 @@ except ModuleNotFoundError:
 
 from media2md_paths import command_path
 
-ROOT = Path(__file__).resolve().parents[1]
+def _project_root() -> Path:
+    explicit = os.environ.get("MEDIA2MD_PROJECT_ROOT")
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+    return Path(__file__).resolve().parents[1]
+
+
+ROOT = _project_root()
 AUTH_PROFILES = ROOT / "config" / "auth_profiles.json"
 REGISTRY_DB = ROOT / "data" / "media2md.db"
 

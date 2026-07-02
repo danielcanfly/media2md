@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.8 - 2026-07-02
+
+- Fix source-mode auth root splitting so YouTube session verification now respects `MEDIA2MD_PROJECT_ROOT` the same way as the shared auth path layer.
+- Add regression coverage for external project-root execution, preventing source checkout auth flows from silently reading bundled auth state paths.
+- Re-run package and live auth smoke validation so the published `media2md` install path receives the same Instagram account-selection and truthfulness behavior as the source checkout.
+
 ## 0.9.7 - 2026-07-02
 
 - Add a fuller agent-facing documentation surface with an operations guide, a decision map, and reusable task prompts for lower-guess automation.

@@ -829,6 +829,31 @@ def test_media2md_uses_source_root_for_scripts_when_project_root_is_external(tmp
             os.environ["MEDIA2MD_PROJECT_ROOT"] = original
 
 
+def test_youtube_session_uses_project_root_for_auth_state_when_project_root_is_external(tmp_path, monkeypatch):
+    root = Path(__file__).resolve().parents[1]
+    script_path = root / "src" / "media2md" / "bundle" / "scripts" / "media2md_youtube_session.py"
+    module_name = "media2md_youtube_session_source_root_regression"
+    spec = importlib.util.spec_from_file_location(module_name, script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    original = os.environ.get("MEDIA2MD_PROJECT_ROOT")
+    monkeypatch.setenv("MEDIA2MD_PROJECT_ROOT", str(tmp_path / "external-project-root"))
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+
+    try:
+        assert module.ROOT == (tmp_path / "external-project-root").resolve()
+        assert module.AUTH_PROFILES == module.ROOT / "config" / "auth_profiles.json"
+        assert module.REGISTRY_DB == module.ROOT / "data" / "media2md.db"
+        assert not str(module.AUTH_PROFILES).startswith(str(root / "src" / "media2md" / "bundle"))
+    finally:
+        sys.modules.pop(module_name, None)
+        if original is None:
+            os.environ.pop("MEDIA2MD_PROJECT_ROOT", None)
+        else:
+            os.environ["MEDIA2MD_PROJECT_ROOT"] = original
+
+
 def test_command_failure_keeps_full_log_and_surfaces_root_cause(tmp_path, monkeypatch):
     import sys
     import media2md_runtime as runtime
