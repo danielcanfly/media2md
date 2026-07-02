@@ -620,7 +620,7 @@ def test_first_user_runtime_status_reports_managed_paths(monkeypatch, tmp_path, 
     assert payload["status"] == "ok"
     assert payload["managed"] is True
     assert payload["managed_base"].endswith("/Downloads/media2md")
-    assert payload["runtime_root"].endswith("/runtime/0.9.6")
+    assert payload["runtime_root"].endswith("/runtime/0.9.7")
 
 
 def test_first_user_runtime_install_reports_installed_path(monkeypatch, tmp_path, capsys):
@@ -631,7 +631,7 @@ def test_first_user_runtime_install_reports_installed_path(monkeypatch, tmp_path
     out = capsys.readouterr().out
     assert result == 0
     assert "MEDIA2MD_RUNTIME_INSTALLED" in out
-    assert "version=0.9.6" in out
+    assert "version=0.9.7" in out
 
 
 def test_first_user_public_cli_main_answers_version_without_runtime_delegate(monkeypatch, tmp_path, capsys):
@@ -648,7 +648,7 @@ def test_first_user_public_cli_main_answers_version_without_runtime_delegate(mon
     result = cli.main()
     out = capsys.readouterr().out
     assert result == 0
-    assert out.strip() == "media2md 0.9.6"
+    assert out.strip() == "media2md 0.9.7"
     assert calls == []
 
 

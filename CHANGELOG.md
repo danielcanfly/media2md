@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.7 - 2026-07-02
+
+- Add a fuller agent-facing documentation surface with an operations guide, a decision map, and reusable task prompts for lower-guess automation.
+- Link the agent operation docs directly from the README so human operators and external agents can find the right command surface faster.
+- Re-verify the published package flow in a clean temporary environment, including install, init, agent status, runtime relocation, and system status checks.
+
 ## 0.9.6 - 2026-07-02
 
 - Polish the public README so the GitHub and PyPI landing experience is shorter, clearer, and more focused on the core install and first-run path.
