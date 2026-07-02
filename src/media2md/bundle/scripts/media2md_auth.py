@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, http.cookiejar, json, os, sys, urllib.error, urllib.parse, urllib.request, webbrowser
+import argparse, http.cookiejar, json, os, sys, tempfile, urllib.error, urllib.parse, urllib.request, webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -77,10 +77,35 @@ def list_profiles(provider,browser,output):
   print(f'TOTAL={len(rows)}')
  return 0 if rows else 2
 
-def connect(provider,browser,profile,output):
+def _resolve_selected_instagram_account(browser,profile_name,requested_account):
+ code,payload=_instagram_accounts_payload(browser,profile_name,persist=False)
+ accounts=payload.get('accounts',[])
+ if not accounts:
+  raise RuntimeError('No Instagram account could be resolved from the selected browser profile.')
+ if requested_account is None:
+  if len(accounts)==1: return accounts[0],'implicit_single_discovered_account'
+  raise RuntimeError('Multiple Instagram accounts require explicit --account selection.')
+ chosen=str(requested_account).strip()
+ for item in accounts:
+  keys={str(item.get('account_key') or '').strip(),str(item.get('account_id') or '').strip(),str(item.get('username') or '').strip()}
+  if chosen in {key for key in keys if key}:
+   return item,'explicit_connect_account'
+ available=', '.join(str(item.get('account_key') or item.get('account_id') or item.get('username') or '-') for item in accounts)
+ raise RuntimeError(f'Instagram account `{chosen}` was not resolved from this browser profile. Available account keys: {available}')
+
+def connect(provider,browser,profile,output,account=None):
  row=validate_profile(browser,profile); data=load(); previous=data['providers'].get(provider,{})
  old=previous.get('cookie_file') if isinstance(previous,dict) else None
  item={'mode':'browser_profile','browser':browser,'profile':profile,'profile_display_name':row['display_name'],'profile_path':row['path'],'use_live_browser_cookies':True,'browser_launch_allowed':False,'updated_at':iso_now(),'last_verified_at':None,'last_auth_state':'configured_unverified','last_authenticated':False,'last_verify_error':None}
+ if account is not None and provider!='instagram':
+  raise RuntimeError(f'Explicit --account selection is not yet supported for {provider}.')
+ if provider=='instagram':
+  discovered,selection_mode=_resolve_selected_instagram_account(browser,profile,account)
+  item['selected_account_id']=discovered.get('account_id')
+  item['selected_account_username']=discovered.get('username')
+  item['selected_account_display_name']=discovered.get('display_name')
+  item['selected_account_key']=discovered.get('account_key')
+  item['selected_account_source']=selection_mode
  data['schema_version']=max(int(data.get('schema_version',1)),5); data['providers'][provider]=item; save(data)
  if provider!='youtube':
   try:
@@ -88,10 +113,15 @@ def connect(provider,browser,profile,output):
   except Exception as exc:
    item['last_refresh_error']=str(exc)[:1000]; data=load(); data['providers'][provider]=item; save(data)
  if old and old!=item.get('cookie_file'): Path(str(old)).unlink(missing_ok=True)
- payload=make_event_payload(event='auth_connected',schema='media2md.cli.auth_connected/v1',data={'provider':provider,'mode':'browser_profile','browser':browser,'profile':profile,'profile_display_name':row['display_name'],'profile_path':row['path'],'browser_launch_allowed':False,'live_cookie_refresh':True})
+ payload=make_event_payload(event='auth_connected',schema='media2md.cli.auth_connected/v1',data={'provider':provider,'mode':'browser_profile','browser':browser,'profile':profile,'profile_display_name':row['display_name'],'profile_path':row['path'],'browser_launch_allowed':False,'live_cookie_refresh':True,'selected_account_key':item.get('selected_account_key'),'selected_account_id':item.get('selected_account_id'),'selected_account_username':item.get('selected_account_username'),'selected_account_display_name':item.get('selected_account_display_name'),'account_selection_mode':item.get('selected_account_source')})
  if output=='ndjson': emit_ndjson(payload)
  else: emit_human('AUTH_CONNECTED',payload); print(f'next_command=media2md auth verify {provider}')
  return 0
+
+def _account_key(account_id, username):
+ if username: return str(username)
+ if account_id: return str(account_id)
+ return 'effective-session'
 
 def _probe(provider,jar):
  req=urllib.request.Request(PROBES[provider],headers={'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124 Safari/537.36','Accept':'text/html,application/xhtml+xml'})
@@ -229,6 +259,174 @@ def _apply_instagram_account_tracking(profile,payload):
    payload['account_mismatch_warning']=f'Selected Instagram account {selected_label} does not match the current live session {resolved_label}.'
  return profile,payload
 
+def _persist_discovered_accounts(provider,browser,profile_name,row,accounts,*,discovery_mode,enumeration_complete):
+ data=load(); current=data['providers'].get(provider,{})
+ if not isinstance(current,dict): current={}
+ if current.get('browser')==browser and current.get('profile')==profile_name:
+  current['profile_display_name']=row.get('display_name')
+  current['profile_path']=row.get('path')
+  current['last_account_discovery_at']=iso_now()
+  current['account_discovery_mode']=discovery_mode
+  current['account_enumeration_complete']=bool(enumeration_complete)
+  current['discovered_accounts']=[
+   {
+    'account_key':item.get('account_key'),
+    'account_id':item.get('account_id'),
+    'username':item.get('username'),
+    'display_name':item.get('display_name'),
+    'status':item.get('status'),
+    'selected':bool(item.get('selected')),
+    'source':item.get('source'),
+    'effective_session':bool(item.get('effective_session')),
+   }
+   for item in accounts
+  ]
+  data['providers'][provider]=current
+  save(data)
+
+def _instagram_accounts_payload(browser,profile_name,*,persist=True):
+ row=validate_profile(browser,profile_name)
+ errors=[]; accounts=[]; warning='Instagram account discovery currently reports the effective session Media2MD can resolve from this browser profile; full multi-account enumeration is not yet available.'
+ SECRET_DIR.mkdir(parents=True,exist_ok=True)
+ with tempfile.NamedTemporaryFile(prefix='media2md-instagram-discovery-',suffix='.txt',dir=str(SECRET_DIR),delete=False) as handle:
+  temp_path=Path(handle.name)
+ try:
+  temp_path.unlink(missing_ok=True)
+  profile={'browser':browser,'profile_path':row['path']}
+  out,count,names=export_profile_snapshot('instagram',profile,output_path=temp_path)
+  jar=load_cookie_jar(out)
+  stats=cookie_stats('instagram',jar)
+  identity=_resolve_instagram_identity(jar)
+  resolved_id=identity.get('resolved_account_id')
+  resolved_username=identity.get('resolved_account_username')
+  resolved_display_name=identity.get('resolved_account_display_name')
+  selected=False
+  saved=load().get('providers',{}).get('instagram',{})
+  if isinstance(saved,dict):
+   selected_id=saved.get('selected_account_id')
+   selected_username=saved.get('selected_account_username')
+   if selected_id and resolved_id:
+    selected=str(selected_id)==str(resolved_id)
+   elif selected_username and resolved_username:
+    selected=str(selected_username).casefold()==str(resolved_username).casefold()
+  if stats.get('auth_cookie_present') and (resolved_id or resolved_username or resolved_display_name):
+   accounts.append({
+    'account_key':_account_key(resolved_id,resolved_username),
+    'account_id':resolved_id,
+    'username':resolved_username,
+    'display_name':resolved_display_name,
+    'status':'authenticated',
+    'selected':selected,
+    'source':identity.get('account_identity_source'),
+    'effective_session':True,
+   })
+  if identity.get('account_identity_warning'): errors.append(identity['account_identity_warning'])
+  if not accounts and not stats.get('auth_cookie_present'):
+   errors.append('No active Instagram auth cookies were found for this browser profile.')
+  if persist: _persist_discovered_accounts('instagram',browser,profile_name,row,accounts,discovery_mode='effective_session_only',enumeration_complete=False)
+  status='ok' if accounts else 'missing'
+  message='Instagram account discovery completed' if accounts else 'No Instagram account could be resolved from this browser profile'
+  account_selection_ready=bool(accounts)
+  payload=make_output_model(
+   event='auth_accounts',
+   schema='media2md.cli.auth_accounts/v1',
+   summary=message,
+   sections=(
+    make_section(
+     'accounts',
+     status=status,
+     message=message,
+     data={
+      'provider':'instagram',
+      'browser':browser,
+      'profile':profile_name,
+      'profile_display_name':row.get('display_name'),
+      'profile_path':row.get('path'),
+      'cookie_count':count,
+      'cookie_names':names,
+      'auth_cookie_present':bool(stats.get('auth_cookie_present')),
+      'discovery_mode':'effective_session_only',
+      'enumeration_complete':False,
+      'account_selection_ready':account_selection_ready,
+      'warning':warning,
+      'warnings':errors,
+      'accounts':accounts,
+     },
+    ),
+   ),
+   data={
+    'provider':'instagram',
+    'browser':browser,
+    'profile':profile_name,
+    'profile_display_name':row.get('display_name'),
+    'profile_path':row.get('path'),
+    'cookie_count':count,
+    'cookie_names':names,
+    'auth_cookie_present':bool(stats.get('auth_cookie_present')),
+    'discovery_mode':'effective_session_only',
+    'enumeration_complete':False,
+    'account_selection_ready':account_selection_ready,
+    'warning':warning,
+    'warnings':errors,
+    'accounts':accounts,
+   },
+  ).as_dict()
+  return (0 if accounts else 2),payload
+ finally:
+  temp_path.unlink(missing_ok=True)
+
+def accounts(provider,browser,profile_name,output):
+ if provider!='instagram':
+  payload=make_output_model(
+   event='auth_accounts',
+   schema='media2md.cli.auth_accounts/v1',
+   summary='Account discovery is not yet available for this provider',
+   sections=(
+    make_section(
+     'accounts',
+     status='warn',
+     message='Account discovery is not yet available for this provider',
+     data={
+      'provider':provider,
+      'browser':browser,
+      'profile':profile_name,
+      'supported':False,
+      'accounts':[],
+      'warning':f'Media2MD does not yet support explicit account discovery for {provider}.',
+     },
+    ),
+   ),
+   data={
+    'provider':provider,
+    'browser':browser,
+    'profile':profile_name,
+    'supported':False,
+    'accounts':[],
+    'warning':f'Media2MD does not yet support explicit account discovery for {provider}.',
+   },
+  ).as_dict()
+  code=0
+ else:
+  code,payload=_instagram_accounts_payload(browser,profile_name)
+ if output=='ndjson': emit_ndjson(payload)
+ else:
+  print('AUTH_ACCOUNTS')
+  print(f"provider={payload.get('provider')}")
+  print(f"browser={payload.get('browser')}")
+  print(f"profile={payload.get('profile')}")
+  if payload.get('profile_display_name') is not None: print(f"profile_display_name={payload.get('profile_display_name')}")
+  if payload.get('discovery_mode') is not None: print(f"discovery_mode={payload.get('discovery_mode')}")
+  if payload.get('enumeration_complete') is not None: print(f"enumeration_complete={str(bool(payload.get('enumeration_complete'))).lower()}")
+  if payload.get('account_selection_ready') is not None: print(f"account_selection_ready={str(bool(payload.get('account_selection_ready'))).lower()}")
+  if payload.get('warning'): print(f"warning={payload.get('warning')}")
+  if payload.get('warnings'):
+   for item in payload['warnings']: print(f"warning_detail={item}")
+  print('ACCOUNT_KEY   ACCOUNT_ID        USERNAME                DISPLAY_NAME                    STATUS          SELECTED  SOURCE')
+  for item in payload.get('accounts',[]):
+   print(f"{str(item.get('account_key') or '-')[:12]:<12} {str(item.get('account_id') or '-')[:16]:<16} {str(item.get('username') or '-')[:22]:<22} {str(item.get('display_name') or '-')[:30]:<30} {str(item.get('status') or '-')[:14]:<14} {str(bool(item.get('selected'))).lower():<9} {str(item.get('source') or '-')}")
+  print(f"TOTAL={len(payload.get('accounts',[]))}")
+ return code
+
 def verify_web(provider,persist=True):
  data=load(); p=data['providers'].get(provider,{})
  payload=make_event_payload(event='auth_verify',schema='media2md.cli.auth_verify/v1',data={'provider':provider,'browser_launch_allowed':False,'browser':p.get('browser'),'profile':p.get('profile'),'profile_configured':bool(p.get('mode')=='browser_profile' and p.get('browser') and p.get('profile')),'cookie_extraction_ready':False,'authenticated':False,'auth_state':'unconfigured','required_action':None,'guidance':[],'error':None})
@@ -326,13 +524,14 @@ def disconnect(provider,yes):
  save(data); print(f'AUTH_DISCONNECT_COMPLETED provider={provider}'); print('browser_session_unchanged=true'); print('operation=disconnect_media2md_profile'); return 0
 
 def capabilities():
- print('AUTH_CAPABILITIES'); print('browser_profile=instagram,youtube,tiktok'); print('browser_launch_policy=never-for-agent-commands'); print('live_cookie_refresh=instagram,youtube,tiktok'); print('server_session_verify=instagram,youtube,tiktok'); print('automatic_password_login=false'); print('human_required=password,2fa,captcha,platform_challenge'); return 0
+ print('AUTH_CAPABILITIES'); print('browser_profile=instagram,youtube,tiktok'); print('live_cookie_refresh=instagram,youtube,tiktok'); print('server_session_verify=instagram,youtube,tiktok'); print('account_discovery=instagram-effective-session-only'); print('browser_launch_policy=never-for-agent-commands'); print('automatic_password_login=false'); print('human_required=password,2fa,captcha,platform_challenge'); return 0
 
 def main():
  p=argparse.ArgumentParser(); s=p.add_subparsers(dest='cmd',required=True)
  x=s.add_parser('login'); x.add_argument('provider',choices=SUPPORTED); x.add_argument('--browser',default='chrome'); x.add_argument('--non-interactive',action='store_true'); x.add_argument('--output',choices=('human','ndjson'),default='human')
  x=s.add_parser('profiles'); x.add_argument('provider',choices=SUPPORTED); x.add_argument('--browser',choices=('chrome','chromium','brave','edge'),default='chrome'); x.add_argument('--output',choices=('human','ndjson'),default='human')
- x=s.add_parser('connect'); x.add_argument('provider',choices=SUPPORTED); x.add_argument('--browser',choices=('chrome','chromium','brave','edge'),default='chrome'); x.add_argument('--profile',required=True); x.add_argument('--output',choices=('human','ndjson'),default='human')
+ x=s.add_parser('accounts'); x.add_argument('provider',choices=SUPPORTED); x.add_argument('--browser',choices=('chrome','chromium','brave','edge'),default='chrome'); x.add_argument('--profile',required=True); x.add_argument('--output',choices=('human','ndjson'),default='human')
+ x=s.add_parser('connect'); x.add_argument('provider',choices=SUPPORTED); x.add_argument('--browser',choices=('chrome','chromium','brave','edge'),default='chrome'); x.add_argument('--profile',required=True); x.add_argument('--account'); x.add_argument('--output',choices=('human','ndjson'),default='human')
  x=s.add_parser('verify'); x.add_argument('provider',choices=SUPPORTED); x.add_argument('--video-id'); x.add_argument('--output',choices=('human','ndjson'),default='human')
  x=s.add_parser('refresh'); x.add_argument('provider',choices=SUPPORTED); x.add_argument('--quiet',action='store_true'); x.add_argument('--output',choices=('human','ndjson'),default='human')
  x=s.add_parser('status'); x.add_argument('--output',choices=('human','ndjson'),default='human')
@@ -341,7 +540,8 @@ def main():
  s.add_parser('capabilities'); a=p.parse_args()
  if a.cmd=='login': return login(a.provider,a.browser,a.non_interactive,a.output)
  if a.cmd=='profiles': return list_profiles(a.provider,a.browser,a.output)
- if a.cmd=='connect': return connect(a.provider,a.browser,a.profile,a.output)
+ if a.cmd=='accounts': return accounts(a.provider,a.browser,a.profile,a.output)
+ if a.cmd=='connect': return connect(a.provider,a.browser,a.profile,a.output,a.account)
  if a.cmd=='verify': return verify(a.provider,a.video_id,a.output)
  if a.cmd=='refresh': return refresh(a.provider,a.quiet,a.output)
  if a.cmd=='status': return status(a.output)

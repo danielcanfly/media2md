@@ -46,12 +46,12 @@ def browser_jar(browser:str, profile_path:str, domain:str):
     if not db: raise RuntimeError(f'Cookie database not found under profile: {profile_path}')
     return fn(cookie_file=str(db),domain_name=domain)
 
-def export_profile_snapshot(provider:str, profile:dict[str,Any], *, force:bool=True) -> tuple[Path,int,list[str]]:
+def export_profile_snapshot(provider:str, profile:dict[str,Any], *, force:bool=True, output_path: str|Path|None=None) -> tuple[Path,int,list[str]]:
     browser=str(profile.get('browser') or '')
     profile_path=str(profile.get('profile_path') or '')
     if not browser or not profile_path: raise RuntimeError('Browser profile is not configured.')
     SECRET_DIR.mkdir(parents=True,exist_ok=True)
-    out=SECRET_DIR/f'{provider}-cookies.txt'
+    out=Path(output_path) if output_path is not None else SECRET_DIR/f'{provider}-cookies.txt'
     merged={}; errors=[]
     for domain in DOMAINS[provider]:
         try:

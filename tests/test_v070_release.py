@@ -112,6 +112,71 @@ def test_instagram_verify_persists_selected_identity_and_reports_future_mismatch
     assert 'account_b' in second['account_mismatch_warning']
 
 
+def test_instagram_accounts_payload_persists_discovered_accounts(tmp_path, monkeypatch):
+    import media2md_auth as auth
+    jar=http.cookiejar.MozillaCookieJar(str(tmp_path/'instagram-cookies.txt'))
+    jar.set_cookie(_cookie('sessionid','x',2147483647))
+    jar.set_cookie(_cookie('ds_user_id','111',2147483647))
+    jar.save(ignore_discard=True,ignore_expires=True)
+    saved=[]
+    state={'schema_version':5,'providers':{'instagram':{'mode':'browser_profile','browser':'chrome','profile':'Default','profile_path':'/tmp/profile'}}}
+    monkeypatch.setattr(auth,'validate_profile',lambda browser,profile:{'display_name':'Primary Profile','path':'/tmp/profile'})
+    monkeypatch.setattr(auth,'export_profile_snapshot',lambda provider,profile,output_path=None,force=True:(tmp_path/'instagram-cookies.txt',2,['ds_user_id','sessionid']))
+    monkeypatch.setattr(auth,'load_cookie_jar',lambda path: jar)
+    monkeypatch.setattr(auth,'cookie_stats',lambda provider,jar:{'auth_cookie_present':True,'auth_cookie_names':['ds_user_id','sessionid'],'expired_auth_cookie_names':[],'cookie_active_count':2,'cookie_expired_count':0})
+    monkeypatch.setattr(auth,'_resolve_instagram_identity',lambda jar:{
+        'resolved_account_id':'111',
+        'resolved_account_username':'account_a',
+        'resolved_account_display_name':'Account A',
+        'account_identity_source':'cookie:ds_user_id',
+        'account_identity_warning':None,
+    })
+    monkeypatch.setattr(auth,'load',lambda: json.loads(json.dumps(state)))
+    monkeypatch.setattr(auth,'save',lambda payload: saved.append(payload))
+    code,payload=auth._instagram_accounts_payload('chrome','Default')
+    assert code == 0
+    assert payload['accounts'][0]['account_id'] == '111'
+    assert payload['accounts'][0]['username'] == 'account_a'
+    assert payload['account_selection_ready'] is True
+    persisted=saved[-1]['providers']['instagram']
+    assert persisted['account_discovery_mode'] == 'effective_session_only'
+    assert persisted['account_enumeration_complete'] is False
+    assert persisted['discovered_accounts'][0]['account_id'] == '111'
+    assert persisted['discovered_accounts'][0]['username'] == 'account_a'
+
+
+def test_instagram_connect_persists_explicit_selected_account(monkeypatch):
+    import media2md_auth as auth
+    saved=[]
+    monkeypatch.setattr(auth,'validate_profile',lambda browser,profile:{'display_name':'Primary Profile','path':'/tmp/profile'})
+    monkeypatch.setattr(auth,'load',lambda: {'schema_version':1,'providers':{}})
+    monkeypatch.setattr(auth,'save',lambda payload: saved.append(json.loads(json.dumps(payload))))
+    monkeypatch.setattr(auth,'refresh_if_configured',lambda provider:{'refreshed':True})
+    monkeypatch.setattr(auth,'_resolve_selected_instagram_account',lambda browser,profile,requested:(
+        {'account_key':'account_a','account_id':'111','username':'account_a','display_name':'Account A'},
+        'explicit_connect_account',
+    ))
+    result=auth.connect('instagram','chrome','Default','ndjson','account_a')
+    assert result == 0
+    persisted=saved[-1]['providers']['instagram']
+    assert persisted['selected_account_key'] == 'account_a'
+    assert persisted['selected_account_id'] == '111'
+    assert persisted['selected_account_username'] == 'account_a'
+    assert persisted['selected_account_source'] == 'explicit_connect_account'
+
+
+def test_instagram_connect_rejects_unknown_account(monkeypatch):
+    import media2md_auth as auth
+    monkeypatch.setattr(auth,'_instagram_accounts_payload',lambda browser,profile_name,persist=False:(
+        0,
+        {
+            'accounts':[{'account_key':'account_a','account_id':'111','username':'account_a'}],
+        },
+    ))
+    with pytest.raises(RuntimeError,match='Available account keys: account_a'):
+        auth._resolve_selected_instagram_account('chrome','Default','account_b')
+
+
 def test_safe_extract_rejects_traversal(tmp_path):
     import media2md_update as update
     archive_path=tmp_path/'bad.zip'

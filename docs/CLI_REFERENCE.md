@@ -54,6 +54,7 @@ pip install "media2md[tiktok]"
 ```text
 media2md auth login
 media2md auth profiles
+media2md auth accounts
 media2md auth connect
 media2md auth verify
 media2md auth refresh
@@ -70,7 +71,18 @@ media2md auth profiles youtube --browser chrome
 media2md auth connect youtube --browser chrome --profile Default
 media2md auth verify youtube
 media2md auth status --output ndjson
+media2md auth accounts instagram --browser chrome --profile Default
+media2md auth connect instagram --browser chrome --profile Default --account <account-key>
 ```
+
+Notes:
+
+- `auth accounts instagram --browser <browser> --profile <profile>` reports the
+  effective Instagram session Media2MD can currently resolve from that browser
+  profile.
+- `auth connect instagram --browser <browser> --profile <profile> --account <account-key>`
+  lets you explicitly bind Media2MD to the currently resolved Instagram session.
+- Full Instagram multi-account enumeration is not yet available in this batch.
 
 ## `media2md media`
 

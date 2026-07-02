@@ -129,12 +129,14 @@ def test_first_user_auth_connect_human_prints_next_verify_command(monkeypatch, c
     monkeypatch.setattr(auth_mod, "load", lambda: {"schema_version": 1, "providers": {}})
     monkeypatch.setattr(auth_mod, "save", lambda payload: None)
     monkeypatch.setattr(auth_mod, "refresh_if_configured", lambda provider: {"refreshed": True})
+    monkeypatch.setattr(auth_mod, "_resolve_selected_instagram_account", lambda browser, profile, requested: ({"account_key":"acct-a","account_id":"111","username":"account_a","display_name":"Account A"}, "implicit_single_discovered_account"))
 
     result = auth_mod.connect("instagram", "chrome", "Default", "human")
     out = capsys.readouterr().out
     assert result == 0
     assert "AUTH_CONNECTED" in out
     assert "next_command=media2md auth verify instagram" in out
+    assert "selected_account_id=111" in out
 
 
 def test_first_user_auth_connect_ndjson_emits_single_payload(monkeypatch, capsys):
@@ -151,6 +153,75 @@ def test_first_user_auth_connect_ndjson_emits_single_payload(monkeypatch, capsys
     assert '"event": "auth_connected"' in out[0]
     assert '"schema": "media2md.cli.auth_connected/v1"' in out[0]
     assert '"provider": "tiktok"' in out[0]
+
+
+def test_first_user_auth_accounts_human_reports_effective_instagram_session(monkeypatch, capsys):
+    auth_mod = _load_auth_module()
+    monkeypatch.setattr(
+        auth_mod,
+        "_instagram_accounts_payload",
+        lambda browser, profile_name: (
+            0,
+            {
+                "event": "auth_accounts",
+                "schema": "media2md.cli.auth_accounts/v1",
+                "provider": "instagram",
+                "browser": browser,
+                "profile": profile_name,
+                "profile_display_name": "Primary Profile",
+                "discovery_mode": "effective_session_only",
+                "enumeration_complete": False,
+                "account_selection_ready": True,
+                "warning": "effective session only",
+                "warnings": ["live username probe unavailable"],
+                "accounts": [
+                    {
+                        "account_key": "13012140087",
+                        "account_id": "13012140087",
+                        "username": None,
+                        "display_name": None,
+                        "status": "authenticated",
+                        "selected": True,
+                        "source": "cookie:ds_user_id",
+                    }
+                ],
+            },
+        ),
+    )
+    result = auth_mod.accounts("instagram", "chrome", "Default", "human")
+    out = capsys.readouterr().out
+    assert result == 0
+    assert "AUTH_ACCOUNTS" in out
+    assert "discovery_mode=effective_session_only" in out
+    assert "account_selection_ready=true" in out
+    assert "warning_detail=live username probe unavailable" in out
+    assert "TOTAL=1" in out
+
+
+def test_first_user_auth_accounts_ndjson_emits_single_payload(monkeypatch, capsys):
+    auth_mod = _load_auth_module()
+    monkeypatch.setattr(
+        auth_mod,
+        "_instagram_accounts_payload",
+        lambda browser, profile_name: (
+            0,
+            {
+                "event": "auth_accounts",
+                "schema": "media2md.cli.auth_accounts/v1",
+                "provider": "instagram",
+                "browser": browser,
+                "profile": profile_name,
+                "accounts": [{"account_key": "acct-a", "account_id": "111", "status": "authenticated", "selected": False, "source": "cookie:ds_user_id"}],
+            },
+        ),
+    )
+    result = auth_mod.accounts("instagram", "chrome", "Default", "ndjson")
+    out = capsys.readouterr().out.strip().splitlines()
+    assert result == 0
+    assert len(out) == 1
+    assert '"event": "auth_accounts"' in out[0]
+    assert '"schema": "media2md.cli.auth_accounts/v1"' in out[0]
+    assert '"provider": "instagram"' in out[0]
 
 
 def test_first_user_auth_verify_human_reports_authenticated_state(monkeypatch, capsys):

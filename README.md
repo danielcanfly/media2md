@@ -111,9 +111,16 @@ Instagram:
 
 ```bash
 media2md auth profiles instagram --browser chrome
-media2md auth connect instagram --browser chrome --profile Default
+media2md auth accounts instagram --browser chrome --profile Default
+media2md auth connect instagram --browser chrome --profile Default --account <account-key>
 media2md auth verify instagram
 ```
+
+`auth accounts instagram` currently reports the effective Instagram session that
+Media2MD can resolve from the selected browser profile. Full multi-account
+enumeration is not yet available. Use the returned `account_key` with
+`auth connect ... --account <account-key>` when you want explicit account
+selection against the currently resolved session.
 
 TikTok:
 

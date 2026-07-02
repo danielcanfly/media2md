@@ -76,9 +76,16 @@ Instagram flow:
 
 ```bash
 media2md auth profiles instagram --browser chrome
-media2md auth connect instagram --browser chrome --profile Default
+media2md auth accounts instagram --browser chrome --profile Default
+media2md auth connect instagram --browser chrome --profile Default --account <account-key>
 media2md auth verify instagram
 ```
+
+`auth accounts instagram` is useful when you want to see which effective
+Instagram account Media2MD currently resolves from the selected browser profile.
+At the moment it reports the effective session, not a complete multi-account
+picker. Use the returned `account_key` with `auth connect ... --account <account-key>`
+when you want explicit selection against that resolved session.
 
 TikTok flow:
 
